@@ -1,6 +1,6 @@
 use gtk4 as gtk;
-use adw::{prelude::*, Application, ApplicationWindow, HeaderBar, StatusPage, AboutWindow};
-use gtk::{Grid, Button, Label, ScrolledWindow, Orientation, Align, MenuButton, gio::Menu};
+use adw::{prelude::*, Application, ApplicationWindow, HeaderBar, AboutWindow};
+use gtk::{Grid, Button, Label, ScrolledWindow, Orientation, Align, MenuButton, gio::Menu, Box as GtkBox};
 use glib::timeout_add_seconds_local;
 use std::collections::HashMap;
 use std::process::Command;
@@ -30,8 +30,8 @@ struct ProcessIO {
 
 struct NetworkMonitorWindow {
     window: ApplicationWindow,
-    grid: Grid,
-    status_bar: StatusPage,
+    fixed_grid: Grid,
+    scrollable_grid: Grid,
     resolve_toggle: gtk::CheckButton,
     header_buttons: Arc<Mutex<Vec<Button>>>,
     prev_io: Arc<Mutex<HashMap<String, ProcessIO>>>,
@@ -41,7 +41,9 @@ struct NetworkMonitorWindow {
     sort_ascending: Arc<Mutex<bool>>,
     resolve_hosts: Arc<Mutex<bool>>,
     row_widgets: Arc<Mutex<Vec<Label>>>,
+    fixed_row_widgets: Arc<Mutex<Vec<Label>>>,
     selected_row: Arc<Mutex<Option<usize>>>,
+    connection_labels: Arc<Mutex<(Label, Label, Label, Label)>>,
 }
 
 impl NetworkMonitorWindow {
@@ -49,27 +51,24 @@ impl NetworkMonitorWindow {
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Network Monitor")
-            .default_width(600)
-            .default_height(800)
+            .default_width(750)
+            .default_height(650)
             .build();
 
         // Set up Adwaita style manager
         let style_manager = adw::StyleManager::default();
         style_manager.set_color_scheme(adw::ColorScheme::Default);
 
-        // Create Grid for better control
-        let grid = Grid::builder()
-            .column_spacing(8)
-            .row_spacing(2)
-            .margin_start(8)
-            .margin_end(8)
-            .margin_top(8)
-            .margin_bottom(8)
+        // Create fixed grid for Process column
+        let fixed_grid = Grid::builder()
+            .column_spacing(6)
+            .row_spacing(1)
             .build();
-        
-        let status_bar = StatusPage::builder()
-            .title("Network Monitor")
-            .description("Monitoring network connections...")
+
+        // Create scrollable grid for other columns
+        let scrollable_grid = Grid::builder()
+            .column_spacing(6)
+            .row_spacing(1)
             .build();
 
         let resolve_toggle = gtk::CheckButton::builder()
@@ -77,10 +76,36 @@ impl NetworkMonitorWindow {
             .active(true)
             .build();
 
+        // Create connection labels
+        let total_label = Label::builder()
+            .label("0 total connections")
+            .halign(Align::Start)
+            .build();
+        total_label.add_css_class("caption");
+        
+        let active_label = Label::builder()
+            .label("0 active connections")
+            .halign(Align::Start)
+            .build();
+        active_label.add_css_class("caption");
+
+        // Create data transfer labels
+        let sent_label = Label::builder()
+            .label("0 B sent")
+            .halign(Align::Start)
+            .build();
+        sent_label.add_css_class("caption");
+        
+        let received_label = Label::builder()
+            .label("0 B received")
+            .halign(Align::Start)
+            .build();
+        received_label.add_css_class("caption");
+
         let monitor = Arc::new(NetworkMonitorWindow {
             window,
-            grid,
-            status_bar,
+            fixed_grid,
+            scrollable_grid,
             resolve_toggle,
             header_buttons: Arc::new(Mutex::new(Vec::new())),
             prev_io: Arc::new(Mutex::new(HashMap::new())),
@@ -90,7 +115,9 @@ impl NetworkMonitorWindow {
             sort_ascending: Arc::new(Mutex::new(false)),
             resolve_hosts: Arc::new(Mutex::new(true)),
             row_widgets: Arc::new(Mutex::new(Vec::new())),
+            fixed_row_widgets: Arc::new(Mutex::new(Vec::new())),
             selected_row: Arc::new(Mutex::new(None)),
+            connection_labels: Arc::new(Mutex::new((total_label, active_label, sent_label, received_label))),
         });
 
         monitor.setup_grid();
@@ -100,9 +127,41 @@ impl NetworkMonitorWindow {
     }
 
     fn setup_grid(self: &Arc<Self>) {
-        // Create header row with clickable columns for sorting
-        let headers = [
-            ("Process(ID)", 0),
+        // Create fixed Process column header
+        let process_button = Button::builder()
+            .label("Process(ID)")
+            .build();
+        process_button.add_css_class("heading");
+        process_button.add_css_class("flat");
+        process_button.add_css_class("fixed-column");
+        
+        // Connect click handler for sorting
+        let monitor_clone = self.clone();
+        process_button.connect_clicked(move |_| {
+            let mut sort_col = monitor_clone.sort_column.lock().unwrap();
+            let mut sort_asc = monitor_clone.sort_ascending.lock().unwrap();
+            
+            if *sort_col == 0 {
+                *sort_asc = !*sort_asc;
+            } else {
+                *sort_col = 0;
+                *sort_asc = true;
+            }
+            
+            drop(sort_col);
+            drop(sort_asc);
+            
+            let monitor_clone2 = monitor_clone.clone();
+            glib::idle_add_local_once(move || {
+                monitor_clone2.update_connections();
+            });
+        });
+        
+        self.fixed_grid.attach(&process_button, 0, 0, 1, 1);
+        self.header_buttons.lock().unwrap().push(process_button);
+
+        // Create scrollable column headers
+        let scrollable_headers = [
             ("Protocol", 1),
             ("Source", 2),
             ("Destination", 3),
@@ -112,7 +171,7 @@ impl NetworkMonitorWindow {
             ("Path", 7),
         ];
 
-        for (text, col) in headers {
+        for (text, col) in scrollable_headers {
             let button = Button::builder()
                 .label(text)
                 .build();
@@ -141,8 +200,27 @@ impl NetworkMonitorWindow {
                     monitor_clone2.update_connections();
                 });
             });
+
+            // Add resize gesture to header buttons
+            let drag_gesture = gtk::GestureDrag::new();
+            let button_clone = button.clone();
             
-            self.grid.attach(&button, col as i32, 0, 1, 1);
+            drag_gesture.connect_drag_update(move |gesture, offset_x, _| {
+                if let Some((start_x, _)) = gesture.start_point() {
+                    let new_width = (start_x + offset_x).max(60.0) as i32;
+                    
+                    // Get current column width and update
+                    let current_width = button_clone.width_request();
+                    if new_width != current_width {
+                        button_clone.set_width_request(new_width);
+                    }
+                }
+            });
+            
+            button.add_controller(drag_gesture);
+            
+            // Adjust column index for scrollable grid (subtract 1 for fixed column)
+            self.scrollable_grid.attach(&button, (col - 1) as i32, 0, 1, 1);
             
             // Store header buttons for styling
             self.header_buttons.lock().unwrap().push(button);
@@ -179,25 +257,30 @@ impl NetworkMonitorWindow {
             .build();
         menu_button.add_css_class("flat");
         menu_button.add_css_class("image-button");
-        menu_button.set_margin_end(6);
+        menu_button.set_margin_end(4);
         let menu_model = self.create_menu_model();
         menu_button.set_menu_model(Some(&menu_model));
         header_bar.pack_end(&menu_button);
 
         main_box.append(&header_bar);
 
-        // Main content area with improved layout
-        let content_box = gtk::Box::builder()
-            .orientation(Orientation::Vertical)
-            .spacing(16)
-            .margin_top(8)
-            .margin_bottom(8)
-            .margin_start(8)
-            .margin_end(8)
+        // Create horizontal box for table layout
+        let table_box = GtkBox::builder()
+            .orientation(Orientation::Horizontal)
+            .margin_start(12)
+            .margin_end(12)
+            .margin_top(12)
+            .margin_bottom(12)
             .build();
-        main_box.append(&content_box);
 
-        // Create enhanced scrolled window with Grid
+        // Create fixed column container (Process column)
+        let fixed_container = GtkBox::builder()
+            .orientation(Orientation::Vertical)
+            .build();
+        fixed_container.add_css_class("fixed-container");
+        fixed_container.append(&self.fixed_grid);
+        
+        // Create scrolled window for scrollable columns
         let scrolled = ScrolledWindow::builder()
             .vexpand(true)
             .hexpand(true)
@@ -205,34 +288,140 @@ impl NetworkMonitorWindow {
             .max_content_height(600)
             .build();
         scrolled.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
-        scrolled.add_css_class("card");
-        scrolled.add_css_class("view");
-        content_box.append(&scrolled);
-        scrolled.set_child(Some(&self.grid));
+        scrolled.set_child(Some(&self.scrollable_grid));
 
-        // Enhanced status bar with reduced spacing
-        self.status_bar.add_css_class("compact");
-        self.status_bar.set_margin_top(4);
-        self.status_bar.set_margin_bottom(2);
-        content_box.append(&self.status_bar);
+        // Add both containers to table box
+        table_box.append(&fixed_container);
+        table_box.append(&scrolled);
+        
+        main_box.append(&table_box);
 
-        // Bottom control panel with reduced spacing
+
+
+        // Add a separator line above the strip
+        let separator = gtk::Separator::builder()
+            .orientation(Orientation::Horizontal)
+            .margin_start(12)
+            .margin_end(12)
+            .build();
+        main_box.append(&separator);
+
+        // Horizontal strip bottom control panel with two columns
         let control_box = gtk::Box::builder()
             .orientation(Orientation::Horizontal)
-            .spacing(12)
-            .margin_top(4)
-            .margin_bottom(4)
-            .margin_start(8)
-            .margin_end(8)
-            .halign(Align::Center)
+            .spacing(0)
+            .margin_top(0)
+            .margin_bottom(0)
+            .margin_start(0)
+            .margin_end(0)
+            .halign(Align::Fill)
+            .valign(Align::Center)
+            .height_request(32)
             .build();
-        control_box.add_css_class("toolbar");
-        control_box.add_css_class("inline-toolbar");
-        content_box.append(&control_box);
+        main_box.append(&control_box);
 
-        // Enhanced host resolution checkbox with better styling
+        // Left column: Network Monitor label and all connection info
+        let left_box = gtk::Box::builder()
+            .orientation(Orientation::Vertical)
+            .spacing(6)
+            .margin_start(12)
+            .halign(Align::Start)
+            .hexpand(true)
+            .build();
+        
+        let monitor_label = Label::builder()
+            .label("Network Monitor")
+            .halign(Align::Start)
+            .build();
+        monitor_label.add_css_class("caption-heading");
+        left_box.append(&monitor_label);
+
+        // Single compact info group for all metrics
+        let info_group = gtk::Box::builder()
+            .orientation(Orientation::Vertical)
+            .spacing(3)
+            .build();
+        info_group.add_css_class("info-group");
+        
+        // Total connections with icon
+        let total_box = gtk::Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(6)
+            .halign(Align::Start)
+            .build();
+        total_box.add_css_class("info-row");
+        let total_icon = gtk::Image::from_icon_name("network-wired-symbolic");
+        total_icon.add_css_class("caption");
+        total_box.append(&total_icon);
+        {
+            let labels = self.connection_labels.lock().unwrap();
+            total_box.append(&labels.0); // total connections
+        }
+        info_group.append(&total_box);
+        
+        // Active connections with icon
+        let active_box = gtk::Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(6)
+            .halign(Align::Start)
+            .build();
+        active_box.add_css_class("info-row");
+        let active_icon = gtk::Image::from_icon_name("network-transmit-receive-symbolic");
+        active_icon.add_css_class("caption");
+        active_box.append(&active_icon);
+        {
+            let labels = self.connection_labels.lock().unwrap();
+            active_box.append(&labels.1); // active connections
+        }
+        info_group.append(&active_box);
+
+        // Data sent with icon
+        let sent_box = gtk::Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(6)
+            .halign(Align::Start)
+            .build();
+        sent_box.add_css_class("info-row");
+        let sent_icon = gtk::Image::from_icon_name("go-up-symbolic");
+        sent_icon.add_css_class("caption");
+        sent_box.append(&sent_icon);
+        {
+            let labels = self.connection_labels.lock().unwrap();
+            sent_box.append(&labels.2); // data sent
+        }
+        info_group.append(&sent_box);
+        
+        // Data received with icon
+        let received_box = gtk::Box::builder()
+            .orientation(Orientation::Horizontal)
+            .spacing(6)
+            .halign(Align::Start)
+            .build();
+        received_box.add_css_class("info-row");
+        let received_icon = gtk::Image::from_icon_name("go-down-symbolic");
+        received_icon.add_css_class("caption");
+        received_box.append(&received_icon);
+        {
+            let labels = self.connection_labels.lock().unwrap();
+            received_box.append(&labels.3); // data received
+        }
+        info_group.append(&received_box);
+        
+        left_box.append(&info_group);
+        
+        control_box.append(&left_box);
+
+        // Right column: Host resolution checkbox
+        let right_box = gtk::Box::builder()
+            .orientation(Orientation::Vertical)
+            .spacing(4)
+            .margin_end(12)
+            .margin_top(2)
+            .halign(Align::End)
+            .valign(Align::Center)
+            .build();
+        
         self.resolve_toggle.set_tooltip_text(Some("Toggle hostname resolution"));
-        self.resolve_toggle.add_css_class("flat");
         
         let resolution_cache = self.resolution_cache.clone();
         let resolve_hosts_field = self.resolve_hosts.clone();
@@ -243,10 +432,12 @@ impl NetworkMonitorWindow {
                 resolution_cache.lock().unwrap().clear();
             }
         });
-        control_box.append(&self.resolve_toggle);
+        
+        right_box.append(&self.resolve_toggle);
+        control_box.append(&right_box);
 
         // Update status
-        self.update_status(0, 0);
+        self.update_status(0, 0, 0, 0);
     }
 
     fn apply_custom_css(&self) {
@@ -254,130 +445,165 @@ impl NetworkMonitorWindow {
         let css = r#"
             .title {
                 font-size: 1.2em;
-                font-weight: 700;
+                font-weight: 600;
                 color: @headerbar_fg_color;
                 margin: 0 8px;
                 transition: all 150ms ease;
             }
             
-
+            @define-color dark_bg_alpha rgba(0, 0, 0, 0.3);
+            @define-color dark_hover_alpha rgba(255, 255, 255, 0.08);
+            @define-color dark_selected_alpha rgba(255, 255, 255, 0.12);
             
             .card {
-                border: 1px solid alpha(@borders, 0.2);
-                border-radius: 8px;
+                border: none;
+                border-radius: 4px;
                 background: @view_bg_color;
-                box-shadow: 0 1px 3px alpha(@shade_color, 0.1);
+                box-shadow: none;
             }
             
             .view {
                 background: @view_bg_color;
+                border: none;
+                outline: none;
             }
             
             .toolbar {
-                background: alpha(@headerbar_bg_color, 0.3);
-                border-radius: 6px;
-                padding: 6px 10px;
-                border: 1px solid alpha(@borders, 0.15);
+                background: transparent;
+                border-radius: 0px;
+                padding: 4px 8px;
+                border: none;
+                box-shadow: none;
             }
             
             .inline-toolbar {
-                background: alpha(@theme_bg_color, 0.5);
-                border: 1px solid alpha(@borders, 0.1);
+                background: transparent;
+                border: none;
             }
             
             .heading {
-                font-weight: 600;
+                font-weight: 500;
                 color: @headerbar_fg_color;
                 font-size: 0.85em;
                 text-transform: uppercase;
-                letter-spacing: 0.3px;
-                opacity: 0.8;
+                letter-spacing: 0.2px;
+                opacity: 0.9;
+                cursor: ew-resize;
+            }
+            
+            .fixed-column {
+                background: @view_bg_color;
+                border-right: 1px solid alpha(@borders, 0.3);
+                position: relative;
+                z-index: 10;
+            }
+            
+            .fixed-container {
+                background: @view_bg_color;
+                border-right: 1px solid alpha(@borders, 0.3);
             }
             
             .badge {
-                background: alpha(@accent_bg_color, 0.15);
-                border-radius: 3px;
-                padding: 1px 4px;
-                font-weight: 600;
-                font-size: 0.8em;
-                border: 1px solid alpha(@accent_bg_color, 0.2);
+                background: transparent;
+                border-radius: 2px;
+                padding: 2px 4px;
+                font-size: 0.85em;
+                border: none;
+                color: @theme_fg_color;
             }
             
             .success {
                 color: @success_color;
-                background: alpha(@success_bg_color, 0.08);
-                border-color: alpha(@success_bg_color, 0.15);
+                background: transparent;
+                border: none;
             }
             
             .warning {
                 color: @warning_color;
-                background: alpha(@warning_bg_color, 0.08);
-                border-color: alpha(@warning_bg_color, 0.15);
+                background: transparent;
+                border: none;
             }
             
             .error {
                 color: @error_color;
-                font-weight: 600;
-                background: alpha(@error_bg_color, 0.05);
-                border-color: alpha(@error_bg_color, 0.1);
+                background: transparent;
+                border: none;
             }
             
             .accent {
                 color: @accent_color;
-                font-weight: 600;
-                background: alpha(@accent_bg_color, 0.05);
-                border-color: alpha(@accent_bg_color, 0.1);
+                background: transparent;
+                border: none;
             }
             
             .caption {
                 font-size: 0.85em;
-                opacity: 0.85;
+                opacity: 0.9;
             }
             
             .caption-heading {
-                font-weight: 700;
-                font-size: 0.9em;
+                font-weight: 600;
+                font-size: 1.0em;
+                margin-bottom: 4px;
+            }
+            
+            .info-group {
+                background: alpha(@theme_bg_color, 0.03);
+                border-radius: 4px;
+                padding: 4px;
+                margin-bottom: 3px;
+            }
+            
+            .info-row {
+                margin-bottom: 1px;
             }
             
             .dim-label {
-                opacity: 0.55;
+                opacity: 0.65;
                 font-style: italic;
             }
             
             grid {
                 background: @view_bg_color;
-                border-radius: 6px;
-                padding: 6px;
+                border-radius: 0px;
+                border: none;
+                padding: 4px;
+                outline: none;
             }
             
             label {
                 padding: 3px 5px;
-                margin: 1px;
+                margin: 0px;
                 border-radius: 2px;
                 border: none;
-                background: rgba(255, 255, 255, 0.05);
+                background: transparent;
+                transition: all 120ms ease;
             }
             
             label:hover {
-                background: rgba(255, 255, 255, 0.08);
+                background: alpha(@theme_bg_color, 0.3);
+                box-shadow: none;
             }
             
             button {
-                margin: 1px;
-                border-radius: 4px;
-                transition: all 150ms ease;
-                min-width: 32px;
+                margin: 0px;
+                border-radius: 2px;
+                transition: all 120ms ease;
+                min-width: 60px;
                 min-height: 32px;
+                border: none;
+                background: transparent;
+                border-right: 1px solid alpha(@borders, 0.3);
             }
             
             button:hover {
-                background: alpha(@accent_bg_color, 0.08);
-                border-color: alpha(@accent_bg_color, 0.15);
+                background: alpha(@theme_bg_color, 0.2);
+                box-shadow: none;
             }
             
             button:active {
-                background: alpha(@accent_bg_color, 0.12);
-                border-color: alpha(@accent_bg_color, 0.2);
+                background: alpha(@theme_bg_color, 0.3);
+                transform: none;
             }
             
             .flat {
@@ -386,8 +612,7 @@ impl NetworkMonitorWindow {
             }
             
             .flat:hover {
-                background: alpha(@accent_bg_color, 0.1);
-                border-color: alpha(@accent_bg_color, 0.15);
+                background: alpha(@theme_bg_color, 0.15);
             }
             
             .image-button {
@@ -395,14 +620,16 @@ impl NetworkMonitorWindow {
             }
             
             .toggle {
-                padding: 6px 12px;
-                font-weight: 500;
+                padding: 3px 8px;
+                font-weight: 400;
+                border: none;
             }
             
             .toggle:checked {
                 background: @accent_bg_color;
                 color: @accent_fg_color;
                 border-color: @accent_bg_color;
+                box-shadow: 0 2px 6px alpha(@accent_bg_color, 0.3);
             }
             
             statuspage {
@@ -411,19 +638,42 @@ impl NetworkMonitorWindow {
             
             statuspage > title {
                 font-size: 1.1em;
-                font-weight: 600;
+                font-weight: 500;
+                color: @headerbar_fg_color;
             }
             
             statuspage > description {
                 font-size: 0.9em;
-                opacity: 0.7;
+                opacity: 0.8;
             }
             
-            .selected {
-                background: alpha(@accent_bg_color, 0.15);
-                border: 1px solid alpha(@accent_bg_color, 0.3);
-                color: @accent_color;
-                font-weight: 600;
+            .row-selected {
+                background: alpha(@accent_bg_color, 0.1);
+                border: none;
+                color: @theme_fg_color;
+                box-shadow: none;
+            }
+            
+            .badge:hover {
+                background: alpha(@theme_bg_color, 0.2);
+                transform: none;
+                box-shadow: none;
+            }
+            
+            .success:hover {
+                background: alpha(@theme_bg_color, 0.2);
+            }
+            
+            .warning:hover {
+                background: alpha(@theme_bg_color, 0.2);
+            }
+            
+            .error:hover {
+                background: alpha(@theme_bg_color, 0.2);
+            }
+            
+            .accent:hover {
+                background: alpha(@theme_bg_color, 0.2);
             }
         "#;
         
@@ -653,11 +903,27 @@ impl NetworkMonitorWindow {
         format!("{:.1}TB/s", bytes_val)
     }
 
-    fn update_status(&self, total: usize, active: usize) {
-        if total > 0 {
-            self.status_bar.set_description(Some(&format!("{} total connections, {} active", total, active)));
+    fn format_bytes_total(&self, bytes_val: u64) -> String {
+        let bytes_val = bytes_val as f64;
+        
+        // Always show in MB for consistency, with 2 decimal places
+        if bytes_val < 1024.0 {
+            format!("{:.1} B", bytes_val)
+        } else if bytes_val < 1024.0 * 1024.0 {
+            format!("{:.1} KB", bytes_val / 1024.0)
         } else {
-            self.status_bar.set_description(Some("Monitoring network connections..."));
+            format!("{:.2} MB", bytes_val / (1024.0 * 1024.0))
+        }
+    }
+
+    fn update_status(&self, total: usize, active: usize, total_sent: u64, total_received: u64) {
+        // Update connection labels in bottom container
+        {
+            let labels = self.connection_labels.lock().unwrap();
+            labels.0.set_text(&format!("{} total connections", total));
+            labels.1.set_text(&format!("{} active connections", active));
+            labels.2.set_text(&format!("Sent: {}", self.format_bytes_total(total_sent)));
+            labels.3.set_text(&format!("Received: {}", self.format_bytes_total(total_received)));
         }
     }
 
@@ -703,9 +969,17 @@ impl NetworkMonitorWindow {
         {
             let mut row_widgets = self.row_widgets.lock().unwrap();
             for widget in row_widgets.iter() {
-                self.grid.remove(widget);
+                self.scrollable_grid.remove(widget);
             }
             row_widgets.clear();
+        }
+        
+        {
+            let mut fixed_row_widgets = self.fixed_row_widgets.lock().unwrap();
+            for widget in fixed_row_widgets.iter() {
+                self.fixed_grid.remove(widget);
+            }
+            fixed_row_widgets.clear();
         }
 
         // Get connections
@@ -739,6 +1013,14 @@ impl NetworkMonitorWindow {
             }
             
             updated_connections.push(conn);
+        }
+
+        // Calculate total sent/received data
+        let mut total_sent = 0u64;
+        let mut total_received = 0u64;
+        for io in current_io.values() {
+            total_sent += io.tx;
+            total_received += io.rx;
         }
 
         // Update previous I/O data for next iteration
@@ -776,8 +1058,36 @@ impl NetworkMonitorWindow {
                 "N/A".to_string()
             };
 
-            let row_data = [
-                prog_pid,
+            // Create fixed Process column label
+            let process_label = Label::builder()
+                .label(&prog_pid)
+                .ellipsize(gtk::pango::EllipsizeMode::End)
+                .build();
+            process_label.add_css_class("caption");
+            process_label.add_css_class("badge");
+            process_label.add_css_class("fixed-column");
+            process_label.set_halign(Align::Start);
+
+            // Add click gesture for row selection
+            let gesture = gtk::GestureClick::new();
+            let selected_row = self.selected_row.clone();
+            let row_num = row;
+            
+            gesture.connect_pressed(move |_, _, _, _| {
+                // Update selected row
+                {
+                    let mut selected = selected_row.lock().unwrap();
+                    *selected = Some(row_num);
+                }
+            });
+            
+            process_label.add_controller(gesture);
+
+            self.fixed_grid.attach(&process_label, 0, row as i32, 1, 1);
+            self.fixed_row_widgets.lock().unwrap().push(process_label);
+
+            // Create scrollable column data
+            let scrollable_data = [
                 conn.protocol.clone(),
                 local_resolved,
                 remote_resolved,
@@ -788,20 +1098,15 @@ impl NetworkMonitorWindow {
             ];
 
             let mut row_widgets = self.row_widgets.lock().unwrap();
-            let current_row = row;
             
-            for (col, text) in row_data.iter().enumerate() {
+            for (col, text) in scrollable_data.iter().enumerate() {
                 let label = Label::builder()
                     .label(text)
                     .ellipsize(gtk::pango::EllipsizeMode::End)
                     .build();
 
-                // Enhanced styling based on column type
-                match col {
-                    0 => { // Process/PID
-                        label.add_css_class("caption");
-                        label.set_halign(Align::Start);
-                    }
+                // Simplified styling based on column type
+                match col + 1 { // +1 because we skip the Process column
                     1 => { // Protocol
                         label.add_css_class("badge");
                         label.set_halign(Align::Center);
@@ -813,12 +1118,14 @@ impl NetworkMonitorWindow {
                     }
                     2 | 3 => { // Source/Destination
                         label.set_halign(Align::Start);
-                        if col == 3 && (conn.rx_rate > 0 || conn.tx_rate > 0) {
+                        label.add_css_class("badge");
+                        if col + 1 == 3 && (conn.rx_rate > 0 || conn.tx_rate > 0) {
                             label.add_css_class("accent");
                         }
                     }
                     4 => { // Status
                         label.set_halign(Align::Center);
+                        label.add_css_class("badge");
                         match conn.state.as_str() {
                             "ESTABLISHED" => label.add_css_class("success"),
                             "LISTEN" => label.add_css_class("warning"),
@@ -828,33 +1135,30 @@ impl NetworkMonitorWindow {
                     }
                     5 => { // TX Rate
                         label.set_halign(Align::End);
+                        label.add_css_class("badge");
                         label.add_css_class("error");
-                        if conn.tx_rate > 0 {
-                            label.add_css_class("caption-heading");
-                        }
                     }
                     6 => { // RX Rate
                         label.set_halign(Align::End);
+                        label.add_css_class("badge");
                         label.add_css_class("accent");
-                        if conn.rx_rate > 0 {
-                            label.add_css_class("caption-heading");
-                        }
                     }
                     7 => { // Path
                         label.add_css_class("caption");
                         label.add_css_class("dim-label");
+                        label.add_css_class("badge");
                         label.set_halign(Align::Start);
                     }
                     _ => {
                         label.set_halign(Align::Start);
+                        label.add_css_class("badge");
                     }
                 }
 
                 // Add click gesture for row selection
                 let gesture = gtk::GestureClick::new();
                 let selected_row = self.selected_row.clone();
-                let row_widgets_clone = self.row_widgets.clone();
-                let row_num = current_row;
+                let row_num = row;
                 
                 gesture.connect_pressed(move |_, _, _, _| {
                     // Update selected row
@@ -862,22 +1166,11 @@ impl NetworkMonitorWindow {
                         let mut selected = selected_row.lock().unwrap();
                         *selected = Some(row_num);
                     }
-                    
-                    // Update visual selection
-                    let widgets = row_widgets_clone.lock().unwrap();
-                    for (i, widget) in widgets.iter().enumerate() {
-                        let widget_row = (i / 8) + 1; // 8 columns per row
-                        if widget_row == row_num {
-                            widget.add_css_class("selected");
-                        } else {
-                            widget.remove_css_class("selected");
-                        }
-                    }
                 });
                 
                 label.add_controller(gesture);
 
-                self.grid.attach(&label, col as i32, row as i32, 1, 1);
+                self.scrollable_grid.attach(&label, col as i32, row as i32, 1, 1);
                 row_widgets.push(label);
             }
 
@@ -889,7 +1182,7 @@ impl NetworkMonitorWindow {
         }
 
         // Update status
-        self.update_status(sorted_connections.len(), active_connections);
+        self.update_status(sorted_connections.len(), active_connections, total_sent, total_received);
     }
 
     fn show_about_dialog(parent: &ApplicationWindow) {
