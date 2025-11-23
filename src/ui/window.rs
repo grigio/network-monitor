@@ -1,5 +1,5 @@
 use adw::{prelude::*, AboutWindow, Application, ApplicationWindow, HeaderBar};
-use gio::{Menu, SimpleAction, SimpleActionGroup};
+use gio::Menu;
 use glib::timeout_add_seconds_local;
 use gtk::{
     Align, Box as GtkBox, Grid, Label, MenuButton, Orientation, PopoverMenu, ScrolledWindow,
