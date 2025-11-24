@@ -30,6 +30,7 @@ pub struct NetworkMonitorWindow {
     selected_row: Rc<RefCell<Option<usize>>>,
     connection_labels: Rc<RefCell<(Label, Label, Label, Label)>>,
     column_widths: Rc<RefCell<Vec<i32>>>,
+    active_popovers: Rc<RefCell<Vec<PopoverMenu>>>,
 }
 
 impl NetworkMonitorWindow {
@@ -115,6 +116,7 @@ impl NetworkMonitorWindow {
                 received_label,
             ))),
             column_widths: Rc::new(RefCell::new(vec![0; 8])), // 8 columns
+            active_popovers: Rc::new(RefCell::new(Vec::new())),
         });
 
         monitor.setup_grid();
@@ -501,6 +503,14 @@ impl NetworkMonitorWindow {
     }
 
     pub fn update_connections(self: &Rc<Self>) {
+        // Clean up any active popovers before clearing widgets
+        {
+            let mut popovers = self.active_popovers.borrow_mut();
+            for popover in popovers.drain(..) {
+                popover.unparent();
+            }
+        }
+
         // Clear existing grid content (except headers)
         {
             let mut row_widgets = self.row_widgets.borrow_mut();
@@ -685,6 +695,7 @@ impl NetworkMonitorWindow {
                 right_click_gesture.set_button(3); // Right mouse button;
 
                 let text_for_right_click = text_for_closures.clone();
+                let active_popovers = self.active_popovers.clone();
                 right_click_gesture.connect_pressed(move |gesture, _, x, y| {
                     let copy_text = text_for_right_click.clone();
                     
@@ -708,10 +719,19 @@ impl NetworkMonitorWindow {
                         let rect = gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
                         menu.set_pointing_to(Some(&rect));
 
-                        // Auto-hide after 1 second
+                        // Track this popover for cleanup
+                        let active_popovers_clone = active_popovers.clone();
                         let menu_clone = menu.clone();
+                        active_popovers_clone.borrow_mut().push(menu_clone.clone());
+
+                        // Auto-hide after 1 second
+                        let menu_for_timeout = menu.clone();
+                        let active_popovers_for_timeout = active_popovers.clone();
                         glib::timeout_add_seconds_local_once(1, move || {
-                            menu_clone.unparent();
+                            menu_for_timeout.unparent();
+                            // Remove from active popovers
+                            let mut popovers = active_popovers_for_timeout.borrow_mut();
+                            popovers.retain(|p| !p.eq(&menu_for_timeout));
                         });
 
                         menu.popup();
