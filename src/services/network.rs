@@ -4,11 +4,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::os::unix::process::ExitStatusExt;
 use std::process::Command;
+use std::time::Instant;
 
 /// Service for monitoring network connections
 pub struct NetworkService {
     pid_regex: Regex,
     prog_regex: Regex,
+    last_update_time: std::cell::RefCell<Instant>,
 }
 
 impl NetworkService {
@@ -16,6 +18,7 @@ impl NetworkService {
         Self {
             pid_regex: Regex::new(r"pid=(\d+)").unwrap(),
             prog_regex: Regex::new(r#""([^"]+)""#).unwrap(),
+            last_update_time: std::cell::RefCell::new(Instant::now()),
         }
     }
 
@@ -126,15 +129,34 @@ impl NetworkService {
         let mut current_io = HashMap::new();
         let mut updated_connections = Vec::new();
 
+        // Calculate time elapsed since last update
+        let now = Instant::now();
+        let time_elapsed = {
+            let last_time = *self.last_update_time.borrow();
+            let elapsed = now.duration_since(last_time);
+            // Update the last update time
+            *self.last_update_time.borrow_mut() = now;
+            elapsed
+        };
+
+        // Convert elapsed time to seconds as f64 for rate calculation
+        let elapsed_seconds = time_elapsed.as_secs_f64();
+        // Avoid division by zero
+        let elapsed_seconds = elapsed_seconds.max(0.001);
+
         for mut conn in connections {
             if conn.pid != "N/A" {
                 let io = self.get_process_io(&conn.pid);
                 let pid_key = conn.pid.clone();
 
-                // Calculate rates based on previous I/O data
+                // Calculate rates based on previous I/O data and time elapsed
                 if let Some(prev) = prev_io.get(&pid_key) {
-                    conn.rx_rate = io.rx.saturating_sub(prev.rx);
-                    conn.tx_rate = io.tx.saturating_sub(prev.tx);
+                    let rx_diff = io.rx.saturating_sub(prev.rx) as f64;
+                    let tx_diff = io.tx.saturating_sub(prev.tx) as f64;
+                    
+                    // Calculate per-second rates
+                    conn.rx_rate = (rx_diff / elapsed_seconds) as u64;
+                    conn.tx_rate = (tx_diff / elapsed_seconds) as u64;
                 }
 
                 current_io.insert(pid_key, io);
