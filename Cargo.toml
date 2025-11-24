@@ -1,7 +1,10 @@
 [package]
 name = "network-monitor"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
+license = "GPL-3.0-or-later"
+authors = ["Luigi Maselli <grigio.org@gmail.com>"]
+description = "A network monitoring application built with Rust and GTK4"
 
 [dependencies]
 gtk4 = { version = "0.10", features = ["v4_14"] }
