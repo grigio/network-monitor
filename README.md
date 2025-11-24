@@ -1,5 +1,7 @@
 # Network Monitor
 
+![Network Monitor demo on GNOME Desktop on Linux](screenshot.gif)
+
 A real-time network connection monitoring tool built with Rust and GTK4, displaying active connections with live I/O statistics in a modern graphical interface.
 
 ## Features
