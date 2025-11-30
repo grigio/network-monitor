@@ -17,7 +17,7 @@ jobs:
       - name: Install deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev pkg-config libpango1.0-dev libgdk-pixbuf2.0-dev libgraphene-gobject-1.0-dev
+          sudo apt-get install -y libglib2.0-dev pkg-config libpango1.0-dev libgdk-pixbuf2.0-dev libgraphene-1.0-dev
       - name: Set PKG_CONFIG_PATH
         run: echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
       - name: Build
