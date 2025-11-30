@@ -4,6 +4,9 @@
 
 A real-time network connection monitoring tool built with Rust and GTK4, displaying active connections with live I/O statistics in a modern graphical interface.
 
+[![rust](https://github.com/grigio/network-monitor/actions/workflows/rust.yml/badge.svg)](https://github.com/grigio/network-monitor/actions/workflows/rust.yml)
+
+
 ## Features
 
 - **Real-time monitoring**: Continuously monitors active network connections
