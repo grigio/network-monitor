@@ -94,6 +94,13 @@ Common addresses are simplified for readability:
 - **Process mapping**: Inode-based process identification via `/proc/*/fd`
 - **System calls**: Direct interaction with `/proc` filesystem for I/O statistics
 
+## Donations
+
+If you find this project helpful, please consider making a donation to support its development.
+
+- **Monero**: `88LyqYXn4LdCVDtPWKuton9hJwbo8ZduNEGuARHGdeSJ79BBYWGpMQR8VGWxGDKtTLLM6E9MJm8RvW9VMUgCcSXu19L9FSv`
+- **Bitcoin**: `bc1q6mh77hfv8x8pa0clzskw6ndysujmr78j6se025`
+
 ## License
 
 This project is open source. See the LICENSE file for details.
