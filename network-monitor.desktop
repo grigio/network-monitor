@@ -1,0 +1,17 @@
+[Desktop Entry]
+Type=Application
+Name=Network Monitor
+Name[it]=Network Monitor
+Comment=Monitor network connections and processes
+Comment[it]=Monitora le connessioni di rete e i processi
+Exec=network-monitor
+Icon=network-monitor
+Terminal=false
+Categories=System;Network;
+StartupNotify=true
+StartupWMClass=org.grigio.NetworkMonitor
+MimeType=
+Keywords=network;monitor;connections;processes;tcp;udp;
+Keywords[it]=rete;monitor;connessioni;processi;tcp;udp;
+NoDisplay=false
+DBusActivatable=false

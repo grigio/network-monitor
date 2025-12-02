@@ -21,23 +21,7 @@ src/
 ```
 
 ## Essential Dependencies
-```toml
-[dependencies]
-gtk4 = { version = "0.10", features = ["v4_14"] }
-adw = { version = "0.8", features = ["v1_5"], package = "libadwaita" }
-glib = "0.21"
-gio = "0.21"
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-regex = "1.0"
-once_cell = "1.0"
-socket2 = "0.5"
-netlink-sys = "0.8"
-netlink-packet-route = "0.20"
-netlink-packet-core = "0.7"
-libc = "0.2"
-```
+See `Cargo.toml` for exact dependency versions and features.
 
 ## Common Patterns
 
@@ -68,6 +52,18 @@ cargo run
 # Release build
 cargo build --release
 
+# Local installation (no sudo required)
+./scripts/install.sh
+
+# System-wide installation (requires sudo)
+sudo ./scripts/install.sh
+
+# Local uninstallation
+./scripts/uninstall.sh
+
+# System-wide uninstallation (requires sudo)
+sudo ./scripts/uninstall.sh
+
 # Format code
 cargo fmt
 
@@ -85,6 +81,7 @@ cargo test
 4. **Resource Management**: Clean up system resources in `Drop` implementations
 5. **Process Mapping**: Use inode-based mapping for accurate socket-to-process identification
 6. **File System Access**: Handle `/proc` filesystem access errors gracefully
+7. **WM Class Matching**: Ensure `StartupWMClass` in desktop file matches `window.set_class_name()` for GNOME dock pinning
 
 ## Implementation Details
 

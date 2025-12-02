@@ -22,6 +22,7 @@ impl NetworkMonitorApp {
     fn new() -> Self {
         let app = Application::builder()
             .application_id("org.grigio.NetworkMonitor")
+            .flags(gio::ApplicationFlags::HANDLES_OPEN)
             .build();
 
         // Set up style manager at application level
@@ -81,16 +82,41 @@ impl NetworkMonitorApp {
         // Copy action for table cells
         let copy_action = SimpleAction::new("copy", None);
         self.app.add_action(&copy_action);
+
+        // Quit action
+        let quit_action = SimpleAction::new("quit", None);
+        let app = self.app.clone();
+        quit_action.connect_activate(move |_, _| {
+            app.quit();
+        });
+        self.app.add_action(&quit_action);
     }
 
     fn run(&self) {
         let window = self.window.clone();
+        let window_for_shutdown = window.clone();
+        
+        // Handle primary instance activation
         self.app.connect_activate(move |app| {
-            let monitor_window = NetworkMonitorWindow::new(app);
-            monitor_window.window.present();
-
             let mut window_guard = window.borrow_mut();
-            *window_guard = Some(monitor_window);
+            
+            if window_guard.is_none() {
+                // First activation - create window
+                let monitor_window = NetworkMonitorWindow::new(app);
+                monitor_window.window.present();
+                *window_guard = Some(monitor_window);
+            } else {
+                // Already running - bring existing window to front
+                if let Some(existing_window) = window_guard.as_ref() {
+                    existing_window.window.present();
+                }
+            }
+        });
+
+        // Handle shutdown to properly clean up resources
+        self.app.connect_shutdown(move |_| {
+            // Clean up window reference
+            *window_for_shutdown.borrow_mut() = None;
         });
 
         self.app.run();

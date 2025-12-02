@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="16" height="16" viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#3584e4;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#1c71d8;stop-opacity:1" />
+    </linearGradient>
+  </defs>
+  
+  <circle cx="8" cy="8" r="7" fill="url(#bg)" stroke="#1a5fb4" stroke-width="1"/>
+  <circle cx="8" cy="5" r="1" fill="white" opacity="0.9"/>
+  <circle cx="5" cy="8" r="1" fill="white" opacity="0.9"/>
+  <circle cx="11" cy="8" r="1" fill="white" opacity="0.9"/>
+  <circle cx="8" cy="11" r="1" fill="white" opacity="0.9"/>
+  
+  <line x1="8" y1="5" x2="5" y2="8" stroke="white" stroke-width="0.5" opacity="0.7"/>
+  <line x1="8" y1="5" x2="11" y2="8" stroke="white" stroke-width="0.5" opacity="0.7"/>
+  <line x1="5" y1="8" x2="8" y2="11" stroke="white" stroke-width="0.5" opacity="0.7"/>
+  <line x1="11" y1="8" x2="8" y2="11" stroke="white" stroke-width="0.5" opacity="0.7"/>
+  <line x1="5" y1="8" x2="11" y2="8" stroke="white" stroke-width="0.5" opacity="0.7"/>
+</svg>

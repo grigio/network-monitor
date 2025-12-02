@@ -43,6 +43,10 @@ impl NetworkMonitorWindow {
             .resizable(true)
             .build();
 
+        // WM class is handled by application ID in GTK4
+
+        
+
         // Add CSS class for window width control
         window.add_css_class("main-window");
 
@@ -122,6 +126,7 @@ impl NetworkMonitorWindow {
         monitor.setup_grid();
         monitor.setup_ui();
         monitor.setup_column_sync();
+        monitor.setup_close_handler();
         monitor.start_monitoring();
         monitor
     }
@@ -499,6 +504,7 @@ impl NetworkMonitorWindow {
 
         menu.append_submenu(Some("Theme"), &theme_submenu);
         menu.append(Some("About"), Some("app.about"));
+        menu.append(Some("Quit"), Some("app.quit"));
         menu
     }
 
@@ -979,6 +985,19 @@ impl NetworkMonitorWindow {
             // Store widths for future reference
             *column_widths.borrow_mut() = max_widths;
         }
+    }
+
+    fn setup_close_handler(self: &Rc<Self>) {
+        // Handle window close event to properly quit the application
+        self.window.connect_close_request(move |window| {
+            // Quit the application directly
+            if let Some(app) = window.application() {
+                app.quit();
+            }
+            
+            // Return true to indicate we've handled the close request
+            glib::Propagation::Stop
+        });
     }
 
     fn start_monitoring(self: &Rc<Self>) {

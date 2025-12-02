@@ -15,6 +15,8 @@ A real-time network connection monitoring tool built with Rust and GTK4, display
 - **Modern GTK4 UI**: Clean, responsive graphical interface with Libadwaita styling
 - **Address resolution**: Simplifies common addresses (localhost, any, mDNS)
 - **Connection filtering**: Filters out localhost connections for cleaner output
+- **GNOME integration**: Proper WM class support for dock pinning and desktop integration
+- **Dual installation**: Supports both user-local and system-wide installation
 
 ## Requirements
 
@@ -36,6 +38,34 @@ sudo dnf install gtk4-devel libadwaita-devel
 
 ## Installation
 
+### Method 1: Install from source with desktop integration
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd network-monitor
+```
+
+2. Install locally (no sudo required):
+```bash
+./scripts/install.sh
+```
+
+3. Or install system-wide (requires sudo):
+```bash
+sudo ./scripts/install.sh
+```
+
+The installation script will:
+- Build the binary (debug for local, release for system-wide)
+- Install binary to `~/.local/bin/` (local) or `/usr/local/bin/` (system-wide)
+- Install desktop file with proper WM class for GNOME dock pinning
+- Install icons to appropriate icon directories
+- Update icon cache and desktop database
+- Ensure the application can be pinned to GNOME dock/dashboard
+
+### Method 2: Build and run directly
+
 1. Clone the repository:
 ```bash
 git clone <repository-url>
@@ -52,6 +82,22 @@ Or build in release mode:
 cargo build --release
 ./target/release/network-monitor
 ```
+
+## Uninstallation
+
+### Remove installed version
+
+Local installation removal:
+```bash
+./scripts/uninstall.sh
+```
+
+System-wide removal (requires sudo):
+```bash
+sudo ./scripts/uninstall.sh
+```
+
+The uninstallation script will remove the binary, desktop file, and icons from the appropriate locations and update all relevant caches.
 
 ## Usage
 

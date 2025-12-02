@@ -21,3 +21,14 @@ netlink-sys = "0.8"
 netlink-packet-route = "0.20"
 netlink-packet-core = "0.7"
 libc = "0.2"
+
+[[bin]]
+name = "network-monitor"
+path = "src/main.rs"
+
+[package.metadata.deb]
+assets = [
+    ["target/release/network-monitor", "usr/bin/", "755"],
+    ["network-monitor.desktop", "usr/share/applications/", "644"],
+    ["icons/network-monitor.svg", "usr/share/icons/hicolor/scalable/apps/", "644"]
+]
