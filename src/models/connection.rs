@@ -9,6 +9,7 @@ pub struct Connection {
     pub remote: String,
     pub program: String,
     pub pid: String,
+    pub command: String,
     pub rx_rate: u64,
     pub tx_rate: u64,
 }
@@ -21,6 +22,7 @@ impl Connection {
         remote: String,
         program: String,
         pid: String,
+        command: String,
     ) -> Self {
         Self {
             protocol,
@@ -29,6 +31,7 @@ impl Connection {
             remote,
             program,
             pid,
+            command,
             rx_rate: 0,
             tx_rate: 0,
         }

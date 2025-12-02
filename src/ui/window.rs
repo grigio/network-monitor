@@ -562,11 +562,7 @@ impl NetworkMonitorWindow {
             let local_resolved = self.resolver.resolve_address(&conn.local);
             let remote_resolved = self.resolver.resolve_address(&conn.remote);
 
-            let process_path = if conn.pid != "N/A" {
-                self.network_service.get_process_path(&conn.pid)
-            } else {
-                "N/A".to_string()
-            };
+            let process_path = conn.command.clone();
 
             let mut row_widgets = self.row_widgets.borrow_mut();
 
@@ -698,16 +694,16 @@ impl NetworkMonitorWindow {
                 let active_popovers = self.active_popovers.clone();
                 right_click_gesture.connect_pressed(move |gesture, _, x, y| {
                     let copy_text = text_for_right_click.clone();
-                    
+
                     // Copy immediately on right-click
                     if let Some(display) = gtk::gdk::Display::default() {
                         let clipboard = display.clipboard();
                         clipboard.set_text(&copy_text);
                     }
-                    
+
                     // Show simple notification menu
                     let menu = PopoverMenu::builder().build();
-                    
+
                     // Create menu model
                     let menu_model = Menu::new();
                     menu_model.append(Some("Copied!"), None);
@@ -751,7 +747,7 @@ impl NetworkMonitorWindow {
                     }
                     glib::Propagation::Proceed
                 });
-                
+
                 label.add_controller(key_controller);
 
                 label.add_controller(right_click_gesture);
@@ -828,19 +824,7 @@ impl NetworkMonitorWindow {
                 4 => a.state.cmp(&b.state),
                 5 => a.tx_rate.cmp(&b.tx_rate),
                 6 => a.rx_rate.cmp(&b.rx_rate),
-                7 => {
-                    let path_a = if a.pid != "N/A" {
-                        self.network_service.get_process_path(&a.pid)
-                    } else {
-                        "N/A".to_string()
-                    };
-                    let path_b = if b.pid != "N/A" {
-                        self.network_service.get_process_path(&b.pid)
-                    } else {
-                        "N/A".to_string()
-                    };
-                    path_a.cmp(&path_b)
-                }
+                7 => a.command.cmp(&b.command),
                 _ => std::cmp::Ordering::Equal,
             };
 

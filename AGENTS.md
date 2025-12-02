@@ -5,6 +5,8 @@
 - **GTK4**: Modern cross-platform GUI framework  
 - **Libadwaita**: GNOME-style UI components
 - **Tokio**: Async runtime for concurrent operations
+- **Native socket parsing**: Direct `/proc/net` filesystem access
+- **Inode-based process mapping**: Socket-to-process identification
 
 ## Project Structure
 ```
@@ -13,15 +15,28 @@ src/
 ├── ui/              # UI components and widgets
 ├── models/          # Data structures and state
 ├── services/        # Business logic and system calls
+│   ├── network.rs   # Native socket parsing and process mapping
+│   └── resolver.rs # Address resolution utilities
 └── utils/           # Helper functions
 ```
 
 ## Essential Dependencies
 ```toml
 [dependencies]
-gtk4 = { version = "0.9", features = ["v4_14"] }
-adw = { version = "0.7", features = ["v1_5"], package = "libadwaita" }
+gtk4 = { version = "0.10", features = ["v4_14"] }
+adw = { version = "0.8", features = ["v1_5"], package = "libadwaita" }
+glib = "0.21"
+gio = "0.21"
 tokio = { version = "1.0", features = ["full"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+regex = "1.0"
+once_cell = "1.0"
+socket2 = "0.5"
+netlink-sys = "0.8"
+netlink-packet-route = "0.20"
+netlink-packet-core = "0.7"
+libc = "0.2"
 ```
 
 ## Common Patterns
@@ -68,9 +83,29 @@ cargo test
 2. **Memory Leaks**: Avoid circular references in callbacks
 3. **Async Integration**: Properly bridge Tokio and GTK main loops
 4. **Resource Management**: Clean up system resources in `Drop` implementations
+5. **Process Mapping**: Use inode-based mapping for accurate socket-to-process identification
+6. **File System Access**: Handle `/proc` filesystem access errors gracefully
+
+## Implementation Details
+
+### Network Connection Monitoring
+The application uses native Rust libraries to monitor network connections:
+
+1. **Direct `/proc/net` parsing**: Reads from `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`, and `/proc/net/udp6`
+2. **Inode-based process mapping**: Maps socket inodes to processes via `/proc/*/fd` for accurate PID identification
+3. **Process information extraction**: Gets process names from `/proc/[pid]/status` and command lines from `/proc/[pid]/cmdline`
+4. **I/O statistics**: Reads real-time I/O data from `/proc/[pid]/io` for TX/RX rate calculations
+
+### Key Advantages Over External Tools
+- **No external dependencies**: Doesn't rely on `ss` or other system utilities
+- **More reliable**: Not affected by changes in external tool output format
+- **Better performance**: Direct file system access instead of spawning processes
+- **Accurate mapping**: Inode-based process mapping provides precise socket-to-process relationships
 
 ## Performance Tips
 - Use `glib::idle_add_once()` for non-critical UI updates
 - Batch multiple UI changes in single closure
 - Cache expensive system information
 - Use async/await for blocking operations
+- Use native socket parsing instead of external commands for better performance
+- Implement efficient inode-to-process mapping to avoid scanning entire `/proc` tree unnecessarily

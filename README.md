@@ -61,13 +61,14 @@ cargo run
 ```
 
 The application will open a GTK4 window displaying:
+- **Process(ID)**: Process name and PID with accurate socket-to-process mapping
 - **Protocol**: TCP/UDP protocol
-- **State**: Connection state (ESTABLISHED, LISTEN, etc.)
-- **Local Address**: Local endpoint (resolved to readable format)
-- **Remote Address**: Remote endpoint (resolved to readable format)
-- **Program(PID)**: Process name and PID
-- **RX Rate**: Download rate
-- **TX Rate**: Upload rate
+- **Source**: Local endpoint (resolved to readable format)
+- **Destination**: Remote endpoint (resolved to readable format)
+- **Status**: Connection state (ESTABLISHED, LISTEN, etc.)
+- **TX**: Upload rate calculated from process I/O statistics
+- **RX**: Download rate calculated from process I/O statistics
+- **Path**: Full command path and arguments from `/proc/[pid]/cmdline`
 
 ### Address Resolution
 
@@ -78,17 +79,20 @@ Common addresses are simplified for readability:
 
 ## How It Works
 
-1. Uses `ss -tulnape` to get active connections with process information
-2. Reads `/proc/[pid]/io` for real-time I/O statistics
-3. Calculates rates by comparing I/O between updates
-4. Updates GTK4 interface every second with current connection state
+1. Reads `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`, and `/proc/net/udp6` for active connections
+2. Maps socket inodes to processes using `/proc/*/fd` for accurate PID identification
+3. Reads `/proc/[pid]/io` for real-time I/O statistics
+4. Calculates rates by comparing I/O between updates
+5. Updates GTK4 interface every 3 seconds with current connection state
 
 ## Architecture
 
 - **GTK4**: Modern cross-platform GUI framework
 - **Libadwaita**: GNOME-style UI components
 - **Tokio**: Async runtime for concurrent operations
-- **System calls**: Direct interaction with `/proc` filesystem
+- **Native socket parsing**: Direct `/proc/net` filesystem access for connection data
+- **Process mapping**: Inode-based process identification via `/proc/*/fd`
+- **System calls**: Direct interaction with `/proc` filesystem for I/O statistics
 
 ## License
 
