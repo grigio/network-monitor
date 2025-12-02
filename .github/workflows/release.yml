@@ -29,7 +29,6 @@ jobs:
             - Cross-platform binaries for Linux x86-64 and ARM64
           draft: false
           prerelease: false
-          files: []
 
   build-release:
     name: Build release binaries
