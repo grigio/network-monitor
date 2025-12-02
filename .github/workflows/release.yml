@@ -36,12 +36,13 @@ jobs:
     needs: create-release
     strategy:
       matrix:
-        target: [x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu]
+        target: [x86_64-unknown-linux-gnu]
         include:
           - target: x86_64-unknown-linux-gnu
             arch: x64
-          - target: aarch64-unknown-linux-gnu
-            arch: arm64
+        # Temporarily disabled ARM64 builds due to cross-compilation complexity
+        # - target: aarch64-unknown-linux-gnu
+        #   arch: arm64
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -49,7 +50,7 @@ jobs:
       - name: Install cross-compilation tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y crossbuild-essential-arm64 pkg-config
+          # sudo apt-get install -y crossbuild-essential-arm64 pkg-config
           rustup target add ${{ matrix.target }}
           
       - name: Install dependencies for x86_64
@@ -58,14 +59,15 @@ jobs:
           sudo apt-get install -y libglib2.0-dev pkg-config libpango1.0-dev libgdk-pixbuf2.0-dev libgraphene-1.0-dev libgtk-4-dev libadwaita-1-dev 
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig" >> $GITHUB_ENV
           
-      - name: Install dependencies for aarch64
-        if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: |
-          sudo dpkg --add-architecture arm64
-          sudo apt-get update
-          sudo apt-get install -y libglib2.0-dev:arm64 pkg-config:arm64 libpango1.0-dev:arm64 libgdk-pixbuf2.0-dev:arm64 libgraphene-1.0-dev:arm64 libgtk-4-dev:arm64 libadwaita-1-dev:arm64
-          echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig" >> $GITHUB_ENV
-          echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+      # ARM64 dependencies temporarily disabled
+      # - name: Install dependencies for aarch64
+      #   if: matrix.target == 'aarch64-unknown-linux-gnu'
+      #   run: |
+      #     sudo dpkg --add-architecture arm64
+      #     sudo apt-get update
+      #     sudo apt-get install -y libglib2.0-dev:arm64 pkg-config:arm64 libpango1.0-dev:arm64 libgdk-pixbuf2.0-dev:arm64 libgraphene-1.0-dev:arm64 libgtk-4-dev:arm64 libadwaita-1-dev:arm64
+      #     echo "PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig" >> $GITHUB_ENV
+      #     echo "CC=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
           
       - name: Build release binary
         run: |
