@@ -844,10 +844,10 @@ impl NetworkMonitorWindow {
             .modal(true)
             .application_name("Network Monitor")
             .application_icon("network-wired-symbolic")
-            .version("1.0.0")
+            .version(env!("CARGO_PKG_VERSION"))
             .developer_name("Network Monitor Team")
             .copyright("© 2024 Network Monitor")
-            .website("https://github.com/example/network-monitor")
+            .website("https://github.com/grigio/network-monitor")
             .license_type(gtk::License::Gpl30)
             .comments("A modern network connection monitoring tool with real-time updates and hostname resolution.")
             .build();

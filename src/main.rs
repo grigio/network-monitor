@@ -21,7 +21,7 @@ struct NetworkMonitorApp {
 impl NetworkMonitorApp {
     fn new() -> Self {
         let app = Application::builder()
-            .application_id("com.example.NetworkMonitor")
+            .application_id("org.grigio.NetworkMonitor")
             .build();
 
         // Set up style manager at application level
