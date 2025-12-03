@@ -8,7 +8,7 @@
 #   sudo ./scripts/uninstall.sh      - System-wide uninstallation
 #
 # Features:
-# - Complete removal of binaries, desktop files, and icons
+# - Complete removal of both GTK4 and TUI binaries, desktop files, and icons
 # - Cache updates for both system and user directories
 # - Safe removal with proper error handling
 
@@ -29,13 +29,22 @@ else
     echo "Uninstalling Network Monitor from user $USER's local installation..."
 fi
 
-# Remove the binary
-BINARY_PATH="$BIN_DIR/network-monitor"
-if [ -f "$BINARY_PATH" ]; then
-    echo "Removing binary: $BINARY_PATH"
-    rm -f "$BINARY_PATH"
+# Remove the binaries
+GTK_BINARY_PATH="$BIN_DIR/network-monitor"
+TUI_BINARY_PATH="$BIN_DIR/nmt"
+
+if [ -f "$GTK_BINARY_PATH" ]; then
+    echo "Removing GTK binary: $GTK_BINARY_PATH"
+    rm -f "$GTK_BINARY_PATH"
 else
-    echo "Warning: Binary not found at $BINARY_PATH"
+    echo "Warning: GTK binary not found at $GTK_BINARY_PATH"
+fi
+
+if [ -f "$TUI_BINARY_PATH" ]; then
+    echo "Removing TUI binary: $TUI_BINARY_PATH"
+    rm -f "$TUI_BINARY_PATH"
+else
+    echo "Warning: TUI binary not found at $TUI_BINARY_PATH"
 fi
 
 # Remove desktop file
@@ -92,4 +101,10 @@ else
 fi
 
 echo "$INSTALL_TYPE uninstallation complete!"
+echo ""
+echo "🗑️  Removed components:"
+echo "  - network-monitor (GTK4 GUI binary)"
+echo "  - nmt (Terminal UI binary)"
+echo "  - Desktop file and icons"
+echo ""
 echo "You may need to restart GNOME Shell (Alt+F2, type 'r', press Enter) to see the changes."

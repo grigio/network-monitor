@@ -95,11 +95,11 @@ impl NetworkMonitorApp {
     fn run(&self) {
         let window = self.window.clone();
         let window_for_shutdown = window.clone();
-        
+
         // Handle primary instance activation
         self.app.connect_activate(move |app| {
             let mut window_guard = window.borrow_mut();
-            
+
             if window_guard.is_none() {
                 // First activation - create window
                 let monitor_window = NetworkMonitorWindow::new(app);

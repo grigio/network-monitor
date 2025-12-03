@@ -4,13 +4,18 @@ use std::thread;
 
 /// Service for resolving IP addresses to hostnames
 #[derive(Clone)]
+#[allow(dead_code)] // Used by GTK version but not TUI
 pub struct AddressResolver {
+    #[allow(dead_code)] // Used by GTK version but not TUI
     cache: Arc<Mutex<HashMap<String, String>>>,
+    #[allow(dead_code)] // Used by GTK version but not TUI
     pending: Arc<Mutex<HashSet<String>>>,
+    #[allow(dead_code)] // Used by GTK version but not TUI
     resolve_hosts: Arc<Mutex<bool>>,
 }
 
 impl AddressResolver {
+    #[allow(dead_code)] // Used by GTK version but not TUI
     pub fn new(resolve_hosts: bool) -> Self {
         Self {
             cache: Arc::new(Mutex::new(HashMap::new())),
@@ -20,6 +25,7 @@ impl AddressResolver {
     }
 
     /// Resolve an address to hostname if resolution is enabled
+    #[allow(dead_code)] // Used by GTK version but not TUI
     pub fn resolve_address(&self, addr: &str) -> String {
         // Handle special cases
         if addr == "0.0.0.0:*" || addr == "*:*" || addr == "[::]:*" {
@@ -121,6 +127,7 @@ impl AddressResolver {
     }
 
     /// Set whether to resolve hostnames
+    #[allow(dead_code)] // Used by GTK version but not TUI
     pub fn set_resolve_hosts(&self, resolve: bool) {
         *self.resolve_hosts.lock().unwrap() = resolve;
         if !resolve {

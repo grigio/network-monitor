@@ -18,10 +18,16 @@ regex = "1"
 once_cell = "1"
 socket2 = "0.6"
 libc = "0.2"
+crossterm = "0.28"
+tui = { package = "ratatui", version = "0.29" }
 
 [[bin]]
 name = "network-monitor"
 path = "src/main.rs"
+
+[[bin]]
+name = "nmt"
+path = "src/tui_main.rs"
 
 [package.metadata.deb]
 assets = [

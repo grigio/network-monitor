@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::models::{Connection, ProcessIO};
 use crate::services::{AddressResolver, NetworkService};
-use crate::utils::Formatter;
+use crate::utils::formatter::Formatter;
 
 /// Main application window
 pub struct NetworkMonitorWindow {
@@ -44,8 +44,6 @@ impl NetworkMonitorWindow {
             .build();
 
         // WM class is handled by application ID in GTK4
-
-        
 
         // Add CSS class for window width control
         window.add_css_class("main-window");
@@ -994,7 +992,7 @@ impl NetworkMonitorWindow {
             if let Some(app) = window.application() {
                 app.quit();
             }
-            
+
             // Return true to indicate we've handled the close request
             glib::Propagation::Stop
         });

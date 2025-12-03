@@ -13,6 +13,7 @@ A real-time network connection monitoring tool built with Rust and GTK4, display
 - **I/O statistics**: Shows live upload/download rates for each connection
 - **Process identification**: Displays the program and PID associated with each connection
 - **Modern GTK4 UI**: Clean, responsive graphical interface with Libadwaita styling
+- **Terminal UI (TUI)**: Interactive terminal interface with the same monitoring capabilities
 - **Address resolution**: Simplifies common addresses (localhost, any, mDNS)
 - **Connection filtering**: Filters out localhost connections for cleaner output
 - **GNOME integration**: Proper WM class support for dock pinning and desktop integration
@@ -57,8 +58,8 @@ sudo ./scripts/install.sh
 ```
 
 The installation script will:
-- Build the binary (debug for local, release for system-wide)
-- Install binary to `~/.local/bin/` (local) or `/usr/local/bin/` (system-wide)
+- Build both GTK4 and TUI binaries (debug for local, release for system-wide)
+- Install binaries to `~/.local/bin/` (local) or `/usr/local/bin/` (system-wide)
 - Install desktop file with proper WM class for GNOME dock pinning
 - Install icons to appropriate icon directories
 - Update icon cache and desktop database
@@ -83,6 +84,26 @@ cargo build --release
 ./target/release/network-monitor
 ```
 
+### Method 3: Build and run the TUI version
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd network-monitor
+```
+
+2. Build and run the TUI:
+```bash
+cargo build --bin nmt
+./target/debug/nmt
+```
+
+Or build in release mode:
+```bash
+cargo build --release --bin nmt
+./target/release/nmt
+```
+
 ## Uninstallation
 
 ### Remove installed version
@@ -101,6 +122,8 @@ The uninstallation script will remove the binary, desktop file, and icons from t
 
 ## Usage
 
+### GTK4 Graphical Interface
+
 Launch the network monitor application:
 ```bash
 cargo run
@@ -115,6 +138,34 @@ The application will open a GTK4 window displaying:
 - **TX**: Upload rate calculated from process I/O statistics
 - **RX**: Download rate calculated from process I/O statistics
 - **Path**: Full command path and arguments from `/proc/[pid]/cmdline`
+
+### Terminal Interface (TUI)
+
+Launch the terminal interface:
+```bash
+cargo run --bin nmt
+```
+
+The TUI provides the same monitoring capabilities in an interactive terminal interface:
+
+**Key Controls:**
+- `q` - Quit the application
+- `r` - Manually refresh connections
+- `a` - Toggle auto-refresh (2-second intervals)
+- `↑/↓` - Navigate through connections
+- `←/→` - Scroll table horizontally
+- `1-8` - Sort by columns (Process(ID), Protocol, Source, Destination, Status, TX, RX, Path)
+
+**Features:**
+- Real-time connection monitoring with auto-refresh
+- Sortable columns with visual indicators
+- Horizontal scrolling for wide tables
+- Smart column sizing - last column gets full remaining width
+- Color-coded protocols (TCP/TCP6 in green, UDP/UDP6 in yellow)
+- Active connection highlighting
+- Process and PID information
+- Live I/O rate display
+- Same column order as GTK4 version for consistency
 
 ### Address Resolution
 

@@ -8,6 +8,7 @@
 #   sudo ./scripts/install.sh      - System-wide installation
 #
 # Features:
+# - Installs both GTK4 and TUI binaries
 # - Proper WM class setting for GNOME dock pinning
 # - Desktop file with correct Exec path
 # - Icon installation and cache updates
@@ -35,21 +36,25 @@ else
     echo "Installing Network Monitor locally for user $USER..."
 fi
 
-# Build the binary
-echo "Building binary..."
+# Build the binaries
+echo "Building binaries..."
 if [ "$INSTALL_TYPE" = "system" ]; then
     sudo -E RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup} /usr/bin/cargo build --release
-    BINARY_PATH="target/release/network-monitor"
+    GTK_BINARY_PATH="target/release/network-monitor"
+    TUI_BINARY_PATH="target/release/nmt"
 else
     cargo build
-    BINARY_PATH="target/debug/network-monitor"
+    GTK_BINARY_PATH="target/debug/network-monitor"
+    TUI_BINARY_PATH="target/debug/nmt"
 fi
 
-# Install binary
-echo "Installing binary to $BIN_DIR..."
+# Install binaries
+echo "Installing binaries to $BIN_DIR..."
 mkdir -p "$BIN_DIR"
-cp "$BINARY_PATH" "$BIN_DIR/"
+cp "$GTK_BINARY_PATH" "$BIN_DIR/"
 chmod 755 "$BIN_DIR/network-monitor"
+cp "$TUI_BINARY_PATH" "$BIN_DIR/"
+chmod 755 "$BIN_DIR/nmt"
 
 # Install desktop file with correct Exec path
 DESKTOP_FILE="network-monitor.desktop"
@@ -123,10 +128,15 @@ fi
 
 echo "$INSTALL_TYPE installation complete!"
 echo ""
+echo "📦 Installed binaries:"
+echo "  - network-monitor (GTK4 GUI)"
+echo "  - nmt (Terminal UI)"
+echo ""
 echo "⚠️  IMPORTANT: To see the correct icon in GNOME Shell:"
 echo "1. Restart GNOME Shell (Alt+F2, type 'r', press Enter)"
 echo "2. Or log out and log back in"
 echo ""
 echo "This ensures the icon cache is refreshed and your custom icon appears."
 echo ""
-echo "The application should now be pinnable to the GNOME dock/dashboard."
+echo "The GTK4 application should now be pinnable to the GNOME dock/dashboard."
+echo "You can run 'nmt' from any terminal to use the TUI version."

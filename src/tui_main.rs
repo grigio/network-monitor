@@ -1,0 +1,534 @@
+use crossterm::{
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
+use models::Connection;
+use services::{NetworkService, AddressResolver};
+use std::collections::HashMap;
+use std::io;
+use std::time::{Duration, Instant};
+use tui::{
+    backend::CrosstermBackend,
+    layout::{Constraint, Direction, Layout},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Row, Table, TableState},
+    Frame, Terminal,
+};
+
+// Import shared modules
+mod models;
+mod services;
+mod utils;
+
+/// Application state for the TUI
+struct App {
+    connections: Vec<Connection>,
+    network_service: NetworkService,
+    resolver: AddressResolver,
+    previous_io: HashMap<String, models::ProcessIO>,
+    table_state: TableState,
+    last_update: Instant,
+    auto_refresh: bool,
+    sort_column: usize,
+    sort_ascending: bool,
+    horizontal_scroll: usize,
+}
+
+impl App {
+    fn new() -> Self {
+        let mut app = Self {
+            connections: Vec::new(),
+            network_service: NetworkService::new(),
+            resolver: AddressResolver::new(false),
+            previous_io: HashMap::new(),
+            table_state: TableState::default(),
+            last_update: Instant::now(),
+            auto_refresh: true,
+            sort_column: 0,
+            sort_ascending: true,
+            horizontal_scroll: 0,
+        };
+        app.update_connections();
+        app
+    }
+
+    fn update_connections(&mut self) {
+        let connections = self.network_service.get_connections();
+        let (updated_connections, current_io) = self
+            .network_service
+            .update_connection_rates(connections, &self.previous_io);
+
+        self.connections = updated_connections;
+        self.previous_io = current_io;
+        self.last_update = Instant::now();
+        self.sort_connections();
+    }
+
+    fn sort_connections(&mut self) {
+        self.connections.sort_by(|a, b| {
+            let ordering = match self.sort_column {
+                0 => a.program.cmp(&b.program),
+                1 => a.protocol.cmp(&b.protocol),
+                2 => a.local.cmp(&b.local),
+                3 => a.remote.cmp(&b.remote),
+                4 => a.state.cmp(&b.state),
+                5 => a.tx_rate.cmp(&b.tx_rate),
+                6 => a.rx_rate.cmp(&b.rx_rate),
+                7 => a.command.cmp(&b.command),
+                _ => std::cmp::Ordering::Equal,
+            };
+
+            if self.sort_ascending {
+                ordering
+            } else {
+                ordering.reverse()
+            }
+        });
+    }
+
+    fn next_row(&mut self) {
+        let i = match self.table_state.selected() {
+            Some(i) => {
+                if i >= self.connections.len().saturating_sub(1) {
+                    0
+                } else {
+                    i + 1
+                }
+            }
+            None => 0,
+        };
+        self.table_state.select(Some(i));
+    }
+
+    fn previous_row(&mut self) {
+        let i = match self.table_state.selected() {
+            Some(i) => {
+                if i == 0 {
+                    self.connections.len().saturating_sub(1)
+                } else {
+                    i - 1
+                }
+            }
+            None => 0,
+        };
+        self.table_state.select(Some(i));
+    }
+
+    fn toggle_sort(&mut self, column: usize) {
+        if self.sort_column == column {
+            self.sort_ascending = !self.sort_ascending;
+        } else {
+            self.sort_column = column;
+            self.sort_ascending = true;
+        }
+        self.sort_connections();
+    }
+
+    fn scroll_left(&mut self) {
+        if self.horizontal_scroll > 0 {
+            self.horizontal_scroll -= 1;
+        }
+    }
+
+    fn scroll_right(&mut self) {
+        self.horizontal_scroll += 1;
+    }
+
+    fn toggle_resolver(&mut self) {
+        let current_state = self.resolver.get_resolve_hosts();
+        self.resolver.set_resolve_hosts(!current_state);
+        // Force refresh to update display with new resolver state
+        self.update_connections();
+    }
+}
+
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: &[&str] = &["B/s", "KB/s", "MB/s", "GB/s"];
+    let mut size = bytes as f64;
+    let mut unit_index = 0;
+
+    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
+        size /= 1024.0;
+        unit_index += 1;
+    }
+
+    if unit_index == 0 {
+        format!("{} {}", bytes, UNITS[unit_index])
+    } else {
+        format!("{:.1} {}", size, UNITS[unit_index])
+    }
+}
+
+fn ui(f: &mut Frame, app: &mut App) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(0),
+            Constraint::Length(3),
+        ])
+        .split(f.area());
+
+    // Header
+    let header_text = vec![Line::from(vec![
+        Span::styled(
+            "Network Monitor TUI",
+            Style::default().add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            format!("Connections: {}", app.connections.len()),
+            Style::default().fg(Color::Cyan),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            if app.auto_refresh {
+                "Auto-refresh: ON"
+            } else {
+                "Auto-refresh: OFF"
+            },
+            Style::default().fg(if app.auto_refresh {
+                Color::Green
+            } else {
+                Color::Red
+            }),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            if app.resolver.get_resolve_hosts() {
+                "Resolver: ON"
+            } else {
+                "Resolver: OFF"
+            },
+            Style::default().fg(if app.resolver.get_resolve_hosts() {
+                Color::Green
+            } else {
+                Color::Red
+            }),
+        ),
+        Span::raw(" | "),
+        Span::styled(
+            format!("Last: {:.1}s ago", app.last_update.elapsed().as_secs_f64()),
+            Style::default().fg(Color::Yellow),
+        ),
+    ])];
+
+    let header =
+        tui::widgets::Paragraph::new(header_text).block(Block::default().borders(Borders::ALL));
+    f.render_widget(header, chunks[0]);
+
+    // Connections table
+    let header_cells = [
+        "Process(ID)", "Protocol", "Source", "Destination", "Status", "TX", "RX", "Path",
+    ]
+    .iter()
+    .enumerate()
+    .map(|(i, &title)| {
+        let style = if i == app.sort_column {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+
+        let arrow = if i == app.sort_column {
+            if app.sort_ascending {
+                " ↑"
+            } else {
+                " ↓"
+            }
+        } else {
+            ""
+        };
+
+        Span::styled(format!("{}{}", title, arrow), style)
+    });
+
+    let _header = Row::new(header_cells)
+        .style(Style::default().add_modifier(Modifier::REVERSED))
+        .height(1);
+
+    let _rows = app.connections.iter().enumerate().map(|(i, conn)| {
+        let color = match conn.protocol.as_str() {
+            "tcp" | "tcp6" => Color::Green,
+            "udp" | "udp6" => Color::Yellow,
+            _ => Color::White,
+        };
+
+        let is_selected = app
+            .table_state
+            .selected()
+            .map(|sel| sel == i)
+            .unwrap_or(false);
+
+        let style = if is_selected {
+            Style::default()
+                .fg(color)
+                .add_modifier(Modifier::BOLD)
+                .bg(Color::DarkGray)
+        } else if conn.is_active() {
+            Style::default().fg(color).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(color)
+        };
+
+        let cells = vec![
+            Span::raw(conn.get_process_display()),
+            Span::raw(&conn.protocol),
+            Span::raw(&conn.local),
+            Span::raw(&conn.remote),
+            Span::raw(&conn.state),
+            Span::raw(format_bytes(conn.tx_rate)),
+            Span::raw(format_bytes(conn.rx_rate)),
+            Span::raw(&conn.command),
+        ];
+
+        Row::new(cells).style(style)
+    });
+
+    // Calculate visible columns based on horizontal scroll
+    let total_columns: usize = 8;
+    let available_width = chunks[1].width.saturating_sub(2) as usize; // Subtract borders
+    let column_widths = [12, 10, 15, 20, 20, 8, 10, 10]; // Minimum widths
+    let mut visible_columns = Vec::new();
+    let mut current_width = 0;
+    let start_col = app.horizontal_scroll.min(total_columns.saturating_sub(1));
+
+    // Determine which columns to show
+    for (i, &width) in column_widths.iter().enumerate().skip(start_col).take(total_columns - start_col) {
+        if current_width + width <= available_width {
+            visible_columns.push(i);
+            current_width += width + 1; // +1 for padding
+        } else {
+            break;
+        }
+    }
+
+    // If no columns fit, show at least the first one
+    if visible_columns.is_empty() && start_col < total_columns {
+        visible_columns.push(start_col);
+    }
+
+    // Calculate remaining width for the last column
+    let remaining_width = available_width.saturating_sub(current_width);
+
+    // Create header with visible columns only
+    let header_titles = ["Process(ID)", "Protocol", "Source", "Destination", "Status", "TX", "RX", "Path"];
+    let visible_header_cells: Vec<_> = visible_columns
+        .iter()
+        .map(|&col_idx| {
+            let style = if col_idx == app.sort_column {
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            
+            let arrow = if col_idx == app.sort_column {
+                if app.sort_ascending { " ↑" } else { " ↓" }
+            } else {
+                ""
+            };
+            
+            let title = if col_idx < header_titles.len() {
+                header_titles[col_idx]
+            } else {
+                ""
+            };
+            
+            Span::styled(format!("{}{}", title, arrow), style)
+        })
+        .collect();
+
+    let visible_header = Row::new(visible_header_cells)
+        .style(Style::default().add_modifier(Modifier::REVERSED))
+        .height(1);
+
+    // Create rows with visible columns only
+    let visible_rows = app.connections.iter().enumerate().map(|(i, conn)| {
+        let color = match conn.protocol.as_str() {
+            "tcp" | "tcp6" => Color::Green,
+            "udp" | "udp6" => Color::Yellow,
+            _ => Color::White,
+        };
+
+        let is_selected = app
+            .table_state
+            .selected()
+            .map(|sel| sel == i)
+            .unwrap_or(false);
+
+        let style = if is_selected {
+            Style::default()
+                .fg(color)
+                .add_modifier(Modifier::BOLD)
+                .bg(Color::DarkGray)
+        } else if conn.is_active() {
+            Style::default().fg(color).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(color)
+        };
+
+        let all_cells = [
+            conn.get_process_display(),
+            conn.protocol.clone(),
+            conn.local.clone(),
+            app.resolver.resolve_address(&conn.remote),
+            conn.state.clone(),
+            format_bytes(conn.tx_rate),
+            format_bytes(conn.rx_rate),
+            conn.command.clone(),
+        ];
+
+        let visible_cells: Vec<_> = visible_columns
+            .iter()
+            .enumerate()
+            .map(|(i, &col_idx)| {
+                let cell_content = if col_idx < all_cells.len() {
+                    all_cells[col_idx].clone()
+                } else {
+                    "".to_string()
+                };
+                
+                // Don't truncate last column - give it full remaining space
+                let is_last_column = i == visible_columns.len().saturating_sub(1);
+                let max_width = if is_last_column {
+                    // For last column, use remaining width or a large number
+                    remaining_width.max(100)
+                } else if col_idx < column_widths.len() {
+                    column_widths[col_idx]
+                } else {
+                    10
+                };
+                
+                let truncated = if !is_last_column && cell_content.len() > max_width {
+                    format!("{}...", &cell_content[..max_width.saturating_sub(3)])
+                } else {
+                    cell_content
+                };
+                Span::raw(truncated)
+            })
+            .collect();
+
+        Row::new(visible_cells).style(style)
+    });
+
+    // Calculate constraints for visible columns
+    let visible_constraints: Vec<_> = visible_columns
+        .iter()
+        .enumerate()
+        .map(|(i, &col_idx)| {
+            // Give the last column the remaining width
+            if i == visible_columns.len().saturating_sub(1) && remaining_width > 0 {
+                Constraint::Min(remaining_width as u16)
+            } else if col_idx < column_widths.len() {
+                Constraint::Min(column_widths[col_idx] as u16)
+            } else {
+                Constraint::Min(10)
+            }
+        })
+        .collect();
+
+    let table = if !visible_constraints.is_empty() {
+        Table::new(visible_rows, visible_constraints)
+            .header(visible_header)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title(format!("Network Connections (scroll: ← → | col {}/{})", 
+                        start_col + 1, total_columns)),
+            )
+            .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+    } else {
+        // Fallback table if no columns fit
+        let empty_rows: Vec<Row> = vec![];
+        Table::new(empty_rows, [Constraint::Min(10)])
+            .header(Row::new([Span::raw("No space")]))
+            .block(Block::default().borders(Borders::ALL).title("Network Connections"))
+            .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
+    };
+
+    f.render_stateful_widget(table, chunks[1], &mut app.table_state);
+
+    // Footer with help
+    let footer_text = vec![Line::from(vec![
+        Span::styled("Keys: ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled("q", Style::default().fg(Color::Red)),
+        Span::raw(":quit "),
+        Span::styled("r", Style::default().fg(Color::Cyan)),
+        Span::raw(":resolver "),
+        Span::styled("a", Style::default().fg(Color::Yellow)),
+        Span::raw(":auto-refresh "),
+        Span::styled("↑↓", Style::default().fg(Color::Green)),
+        Span::raw(":navigate "),
+        Span::styled("←→", Style::default().fg(Color::Blue)),
+        Span::raw(":scroll "),
+        Span::styled("1-8", Style::default().fg(Color::Magenta)),
+        Span::raw(":sort "),
+    ])];
+
+    let footer =
+        tui::widgets::Paragraph::new(footer_text).block(Block::default().borders(Borders::ALL));
+    f.render_widget(footer, chunks[2]);
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    enable_raw_mode()?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend)?;
+
+    let mut app = App::new();
+    let mut last_tick = Instant::now();
+
+    loop {
+        terminal.draw(|f| ui(f, &mut app))?;
+
+        let timeout = Duration::from_millis(100);
+        if crossterm::event::poll(timeout)? {
+            if let Event::Key(key) = event::read()? {
+                if key.kind == KeyEventKind::Press {
+                    match key.code {
+                        KeyCode::Char('q') => break,
+                        KeyCode::Char('r') => app.toggle_resolver(),
+                        KeyCode::Char('a') => app.auto_refresh = !app.auto_refresh,
+                        KeyCode::Up => app.previous_row(),
+                        KeyCode::Down => app.next_row(),
+                        KeyCode::Left => app.scroll_left(),
+                        KeyCode::Right => app.scroll_right(),
+                        KeyCode::Char('1') => app.toggle_sort(0),
+                        KeyCode::Char('2') => app.toggle_sort(1),
+                        KeyCode::Char('3') => app.toggle_sort(2),
+                        KeyCode::Char('4') => app.toggle_sort(3),
+                        KeyCode::Char('5') => app.toggle_sort(4),
+                        KeyCode::Char('6') => app.toggle_sort(5),
+                        KeyCode::Char('7') => app.toggle_sort(6),
+                        KeyCode::Char('8') => app.toggle_sort(7),
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        // Auto-refresh if enabled
+        if app.auto_refresh && last_tick.elapsed() >= Duration::from_secs(2) {
+            app.update_connections();
+            last_tick = Instant::now();
+        }
+    }
+
+    disable_raw_mode()?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableMouseCapture
+    )?;
+    terminal.show_cursor()?;
+
+    Ok(())
+}

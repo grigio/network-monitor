@@ -1,8 +1,10 @@
 /// Utility for formatting byte values
+#[allow(dead_code)] // Used by GTK version but not TUI
 pub struct Formatter;
 
 impl Formatter {
     /// Format bytes as human readable string with rate (per second)
+    #[allow(dead_code)] // Used by GTK version but not TUI
     pub fn format_bytes(bytes_val: u64) -> String {
         let mut bytes_val = bytes_val as f64;
         let units = ["B", "KB", "MB", "GB"];
@@ -17,6 +19,7 @@ impl Formatter {
     }
 
     /// Format bytes as human readable string (total)
+    #[allow(dead_code)] // Used by GTK version but not TUI
     pub fn format_bytes_total(bytes_val: u64) -> String {
         let bytes_val = bytes_val as f64;
 

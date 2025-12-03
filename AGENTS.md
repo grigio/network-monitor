@@ -1,9 +1,11 @@
-# Network Monitor - Rust + GTK4 Guide
+# Network Monitor - Rust + GTK4 + TUI Guide
 
 ## Technology Stack
 - **Rust 2021 Edition**: Systems programming with memory safety
 - **GTK4**: Modern cross-platform GUI framework  
 - **Libadwaita**: GNOME-style UI components
+- **Ratatui**: Terminal User Interface framework
+- **Crossterm**: Cross-platform terminal handling
 - **Tokio**: Async runtime for concurrent operations
 - **Native socket parsing**: Direct `/proc/net` filesystem access
 - **Inode-based process mapping**: Socket-to-process identification
@@ -11,13 +13,14 @@
 ## Project Structure
 ```
 src/
-├── main.rs          # Application entry point
-├── ui/              # UI components and widgets
-├── models/          # Data structures and state
-├── services/        # Business logic and system calls
+├── main.rs          # GTK4 application entry point
+├── tui_main.rs      # TUI application entry point
+├── ui/              # GTK4 UI components and widgets
+├── models/          # Data structures and state (shared)
+├── services/        # Business logic and system calls (shared)
 │   ├── network.rs   # Native socket parsing and process mapping
 │   └── resolver.rs # Address resolution utilities
-└── utils/           # Helper functions
+└── utils/           # Helper functions (shared)
 ```
 
 ## Essential Dependencies
@@ -46,11 +49,18 @@ glib::spawn_future_local(async move {
 
 ## Development Commands
 ```bash
-# Development build
+# Development build (GTK4)
 cargo run
 
-# Release build
+# Development build (TUI)
+cargo run --bin nmt
+
+# Release build (both binaries)
 cargo build --release
+
+# Build specific binary
+cargo build --bin network-monitor
+cargo build --bin nmt
 
 # Local installation (no sudo required)
 ./scripts/install.sh
@@ -82,6 +92,8 @@ cargo test
 5. **Process Mapping**: Use inode-based mapping for accurate socket-to-process identification
 6. **File System Access**: Handle `/proc` filesystem access errors gracefully
 7. **WM Class Matching**: Ensure `StartupWMClass` in desktop file matches `window.set_class_name()` for GNOME dock pinning
+8. **Terminal Compatibility**: TUI requires proper terminal environment - avoid running in limited IDE terminals
+9. **Code Sharing**: Maintain shared modules (models, services, utils) to avoid duplication between GTK and TUI versions
 
 ## Implementation Details
 
@@ -106,3 +118,5 @@ The application uses native Rust libraries to monitor network connections:
 - Use async/await for blocking operations
 - Use native socket parsing instead of external commands for better performance
 - Implement efficient inode-to-process mapping to avoid scanning entire `/proc` tree unnecessarily
+- For TUI: Use terminal escape sequences efficiently and limit refresh rate to avoid flickering
+- Share core logic between GTK and TUI versions to maintain consistency and reduce maintenance
