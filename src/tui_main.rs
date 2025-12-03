@@ -3,6 +3,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use error::Result;
 use models::Connection;
 use services::{NetworkService, AddressResolver};
 use std::collections::HashMap;
@@ -18,9 +19,36 @@ use tui::{
 };
 
 // Import shared modules
+mod error;
+mod error_tests;
 mod models;
 mod services;
 mod utils;
+
+/// Layout cache for TUI performance
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct LayoutCache {
+    available_width: u16,
+    visible_columns: Vec<usize>,
+    column_constraints: Vec<Constraint>,
+    last_calculation: Instant,
+}
+
+impl LayoutCache {
+    fn new() -> Self {
+        Self {
+            available_width: 0,
+            visible_columns: Vec::new(),
+            column_constraints: Vec::new(),
+            last_calculation: Instant::now(),
+        }
+    }
+
+    fn is_valid(&self, width: u16) -> bool {
+        self.available_width == width && self.last_calculation.elapsed() < Duration::from_secs(5)
+    }
+}
 
 /// Application state for the TUI
 struct App {
@@ -34,6 +62,7 @@ struct App {
     sort_column: usize,
     sort_ascending: bool,
     horizontal_scroll: usize,
+    layout_cache: LayoutCache,
 }
 
 impl App {
@@ -46,24 +75,36 @@ impl App {
             table_state: TableState::default(),
             last_update: Instant::now(),
             auto_refresh: true,
-            sort_column: 0,
-            sort_ascending: true,
+            sort_column: 6,  // RX column
+            sort_ascending: false,  // Descending order
             horizontal_scroll: 0,
+            layout_cache: LayoutCache::new(),
         };
         app.update_connections();
         app
     }
 
     fn update_connections(&mut self) {
-        let connections = self.network_service.get_connections();
-        let (updated_connections, current_io) = self
-            .network_service
-            .update_connection_rates(connections, &self.previous_io);
-
-        self.connections = updated_connections;
-        self.previous_io = current_io;
-        self.last_update = Instant::now();
-        self.sort_connections();
+        match self.network_service.get_connections() {
+            Ok(connections) => {
+                match self.network_service.update_connection_rates(connections, &self.previous_io) {
+                    Ok((updated_connections, current_io)) => {
+                        self.connections = updated_connections;
+                        self.previous_io = current_io;
+                        self.last_update = Instant::now();
+                        self.sort_connections();
+                    }
+                    Err(e) => {
+                        // Log error but continue with existing data
+                        eprintln!("Failed to update connection rates: {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                // Log error but continue with existing data
+                eprintln!("Failed to get connections: {}", e);
+            }
+        }
     }
 
     fn sort_connections(&mut self) {
@@ -146,6 +187,12 @@ impl App {
 
 fn format_bytes(bytes: u64) -> String {
     const UNITS: &[&str] = &["B/s", "KB/s", "MB/s", "GB/s"];
+    
+    if bytes < 1024 {
+        // Fast path for small values
+        return format!("{} {}", bytes, UNITS[0]);
+    }
+    
     let mut size = bytes as f64;
     let mut unit_index = 0;
 
@@ -289,31 +336,59 @@ fn ui(f: &mut Frame, app: &mut App) {
         Row::new(cells).style(style)
     });
 
-    // Calculate visible columns based on horizontal scroll
+    // Calculate visible columns based on horizontal scroll with caching
     let total_columns: usize = 8;
     let available_width = chunks[1].width.saturating_sub(2) as usize; // Subtract borders
-    let column_widths = [12, 10, 15, 20, 20, 8, 10, 10]; // Minimum widths
-    let mut visible_columns = Vec::new();
-    let mut current_width = 0;
+    let column_widths = [15, 10, 18, 22, 12, 10, 12, 15]; // Stable minimum widths
     let start_col = app.horizontal_scroll.min(total_columns.saturating_sub(1));
+    
+    // Check if we can use cached layout
+    let (visible_columns, remaining_width) = if app.layout_cache.is_valid(chunks[1].width) {
+        (
+            app.layout_cache.visible_columns.clone(),
+            available_width.saturating_sub(
+                app.layout_cache.visible_columns.iter().enumerate()
+                    .map(|(i, &col_idx)| {
+                        if i < column_widths.len() {
+                            column_widths[col_idx]
+                        } else {
+                            10
+                        }
+                    })
+                    .sum::<usize>() + app.layout_cache.visible_columns.len().saturating_sub(1)
+            )
+        )
+    } else {
+        // Recalculate layout
+        let mut visible_columns = Vec::new();
+        let mut current_width = 0;
 
-    // Determine which columns to show
-    for (i, &width) in column_widths.iter().enumerate().skip(start_col).take(total_columns - start_col) {
-        if current_width + width <= available_width {
-            visible_columns.push(i);
-            current_width += width + 1; // +1 for padding
-        } else {
-            break;
+        // Determine which columns to show - be more conservative to avoid frequent changes
+        for (i, &width) in column_widths.iter().enumerate().skip(start_col).take(total_columns - start_col) {
+            // Add small buffer to prevent flickering when width is borderline
+            let required_width = width + 2; // +2 for padding and buffer
+            if current_width + required_width <= available_width || visible_columns.is_empty() {
+                visible_columns.push(i);
+                current_width += required_width;
+            } else {
+                break;
+            }
         }
-    }
 
-    // If no columns fit, show at least the first one
-    if visible_columns.is_empty() && start_col < total_columns {
-        visible_columns.push(start_col);
-    }
+        // If no columns fit, show at least the first one
+        if visible_columns.is_empty() && start_col < total_columns {
+            visible_columns.push(start_col);
+        }
 
-    // Calculate remaining width for the last column
-    let remaining_width = available_width.saturating_sub(current_width);
+        let remaining_width = available_width.saturating_sub(current_width);
+
+        // Update cache
+        app.layout_cache.available_width = chunks[1].width;
+        app.layout_cache.visible_columns = visible_columns.clone();
+        app.layout_cache.last_calculation = Instant::now();
+
+        (visible_columns, remaining_width)
+    };
 
     // Create header with visible columns only
     let header_titles = ["Process(ID)", "Protocol", "Source", "Destination", "Status", "TX", "RX", "Path"];
@@ -417,7 +492,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         Row::new(visible_cells).style(style)
     });
 
-    // Calculate constraints for visible columns
+    // Calculate constraints for visible columns with more stable sizing
     let visible_constraints: Vec<_> = visible_columns
         .iter()
         .enumerate()
@@ -426,9 +501,10 @@ fn ui(f: &mut Frame, app: &mut App) {
             if i == visible_columns.len().saturating_sub(1) && remaining_width > 0 {
                 Constraint::Min(remaining_width as u16)
             } else if col_idx < column_widths.len() {
-                Constraint::Min(column_widths[col_idx] as u16)
+                // Use fixed widths for better stability
+                Constraint::Length(column_widths[col_idx] as u16)
             } else {
-                Constraint::Min(10)
+                Constraint::Length(10)
             }
         })
         .collect();
@@ -476,7 +552,7 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(footer, chunks[2]);
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
