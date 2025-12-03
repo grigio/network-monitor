@@ -9,6 +9,7 @@ use error::Result;
 use models::Connection;
 use services::{AddressResolver, NetworkService};
 use std::collections::HashMap;
+use std::env;
 use std::io;
 use std::time::{Duration, Instant};
 use tui::{
@@ -583,7 +584,16 @@ fn ui(f: &mut Frame, app: &mut App) {
     f.render_widget(footer, chunks[2]);
 }
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+
 fn main() -> Result<()> {
+    // Check for --version argument
+    let args: Vec<String> = env::args().collect();
+    if args.len() > 1 && args[1] == "--version" {
+        println!("nmt version {}", VERSION);
+        return Ok(());
+    }
+
     // Try to enable raw mode with better error handling
     match enable_raw_mode() {
         Ok(()) => {
