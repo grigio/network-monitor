@@ -17,14 +17,17 @@ jobs:
       - name: Generate changelog
         id: changelog
         run: |
-          # Get the previous tag
-          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          # Fetch all tags and history
+          git fetch --prune --unshallow
+          
+          # Get the previous tag (excluding the current tag)
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
           
           if [ -n "$PREVIOUS_TAG" ]; then
             echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
             echo "## Changes since $PREVIOUS_TAG" >> $GITHUB_OUTPUT
             echo "" >> $GITHUB_OUTPUT
-            git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD >> $GITHUB_OUTPUT
+            git log --pretty=format:"- %s (%h)" $PREVIOUS_TAG..HEAD >> $GITHUB_OUTPUT
             echo "" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
           else
