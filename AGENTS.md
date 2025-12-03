@@ -2,11 +2,13 @@
 
 ## Technology Stack
 - **Rust 2021 Edition**: Systems programming with memory safety
-- **GTK4**: Modern cross-platform GUI framework  
-- **Libadwaita**: GNOME-style UI components
-- **Ratatui**: Terminal User Interface framework
-- **Crossterm**: Cross-platform terminal handling
-- **Tokio**: Async runtime for concurrent operations
+- **GTK4**: Modern cross-platform GUI framework with v4_14 features
+- **Libadwaita**: GNOME-style UI components with v1_5 features
+- **Ratatui**: Terminal User Interface framework (beta version for latest features)
+- **Crossterm**: Cross-platform terminal handling with event streaming
+- **GLib/GIO**: GObject system and I/O operations
+- **Serde**: Serialization framework with JSON support
+- **ThisError**: Error handling with context
 - **Native socket parsing**: Direct `/proc/net` filesystem access
 - **Inode-based process mapping**: Socket-to-process identification
 
@@ -32,7 +34,26 @@ src/
 ```
 
 ## Essential Dependencies
+
 See `Cargo.toml` for exact dependency versions and features.
+
+### Core Dependencies
+- **gtk4**: Modern GTK4 bindings with v4_14 features
+- **libadwaita**: GNOME-style UI components with v1_5 features  
+- **glib**: GLib bindings for GObject system
+- **gio**: GIO bindings for I/O operations
+- **serde**: Serialization framework with derive support
+- **serde_json**: JSON serialization support
+- **thiserror**: Error handling with context
+- **crossterm**: Terminal handling with event streaming
+- **ratatui**: Terminal User Interface framework with crossterm backend
+
+### Dependency Status
+- All dependencies are current and actively maintained
+- Using beta version of ratatui for latest features
+- Security audit passed with no critical vulnerabilities
+- License compliance verified with cargo-deny
+- Duplicate dependency warnings present (itertools 0.13.0/0.14.0) but non-critical
 
 ## Common Patterns
 
@@ -148,7 +169,7 @@ cargo test
 # Run tests with error handling coverage
 cargo test error_tests
 
-# Run security audit
+# Run security audit (requires cargo-audit)
 cargo audit
 
 # Run dependency checks
