@@ -258,7 +258,7 @@ mod tests {
     fn test_parse_line_with_fallback() {
         let result = ErrorRecovery::parse_line_with_fallback(
             "invalid",
-            |s| crate::utils::parse_hex_u16(s, "test").map_err(|e| e),
+            |s| crate::utils::parse_hex_u16(s, "test"),
             42,
         );
         assert_eq!(result, 42);

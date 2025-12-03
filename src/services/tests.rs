@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod tests {
+mod service_tests {
     use crate::models::{Connection, ProcessIO};
     use crate::services::NetworkService;
     use std::collections::HashMap;

@@ -1,5 +1,5 @@
 #[cfg(test)]
-mod error_tests {
+mod error_handling_tests {
     use crate::error::{NetworkMonitorError, Result};
 
     #[test]
@@ -8,8 +8,8 @@ mod error_tests {
         let network_error = NetworkMonitorError::from(io_error);
 
         match network_error {
-            NetworkMonitorError::ProcIo(_) => assert!(true),
-            _ => assert!(false, "Expected ProcIo error"),
+            NetworkMonitorError::ProcIo(_) => {}, // Expected variant
+            _ => panic!("Expected ProcIo error"),
         }
     }
 
@@ -49,7 +49,7 @@ mod error_tests {
             Err(NetworkMonitorError::ParseError(msg)) => {
                 assert!(msg.contains("test error"));
             }
-            _ => assert!(false, "Expected ParseError"),
+            _ => panic!("Expected ParseError"),
         }
     }
 }
