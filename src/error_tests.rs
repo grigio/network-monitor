@@ -8,7 +8,7 @@ mod error_handling_tests {
         let network_error = NetworkMonitorError::from(io_error);
 
         match network_error {
-            NetworkMonitorError::ProcIo(_) => {}, // Expected variant
+            NetworkMonitorError::ProcIo(_) => {} // Expected variant
             _ => panic!("Expected ProcIo error"),
         }
     }
