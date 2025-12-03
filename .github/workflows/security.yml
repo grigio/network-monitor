@@ -147,17 +147,37 @@ jobs:
   secrets-scan:
     name: Secrets Scan
     runs-on: ubuntu-latest
-    
+
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0  # Fetch full history for secret scanning
-        
-    - name: Run TruffleHog OSS
+
+    # For push events: use previous/latest commit
+    - name: Run TruffleHog OSS (push)
+      if: github.event_name == 'push'
       uses: trufflesecurity/trufflehog@main
       with:
         path: ./
-        base: master
-        head: HEAD
+        base: ${{ github.event.before }}
+        head: ${{ github.sha }}
+        extra_args: --debug --only-verified
+
+    # For pull requests: use PR base/head
+    - name: Run TruffleHog OSS (pull_request)
+      if: github.event_name == 'pull_request'
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.pull_request.base.sha }}
+        head: ${{ github.event.pull_request.head.sha }}
+        extra_args: --debug --only-verified
+
+    # For scheduled/manual runs, scan whole repo
+    - name: Run TruffleHog OSS (schedule/others)
+      if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || github.event_name == 'repository_dispatch'
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
         extra_args: --debug --only-verified
