@@ -141,6 +141,8 @@ The application will open a GTK4 window displaying:
 
 ### Terminal Interface (TUI)
 
+![nmt tui of network-monitor](./nmt.png)
+
 Launch the terminal interface:
 ```bash
 cargo run --bin nmt
