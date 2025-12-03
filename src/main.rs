@@ -1,5 +1,5 @@
 use adw::{prelude::*, Application};
-use gio::SimpleAction;
+use gio::ActionEntry;
 use gtk4 as gtk;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -41,62 +41,55 @@ impl NetworkMonitorApp {
     }
 
     fn setup_actions(&self) {
-        let refresh_action = SimpleAction::new("refresh", None);
-        let window = self.window.clone();
-        refresh_action.connect_activate(move |_, _| {
-            if let Some(window_guard) = window.borrow().as_ref() {
-                window_guard.update_connections();
-            }
-        });
-        self.app.add_action(&refresh_action);
-
-        let about_action = SimpleAction::new("about", None);
-        let window = self.window.clone();
-        about_action.connect_activate(move |_, _| {
-            if let Some(window_guard) = window.borrow().as_ref() {
-                NetworkMonitorWindow::show_about_dialog(&window_guard.window);
-            }
-        });
-        self.app.add_action(&about_action);
+        // About action
+        let action_about = ActionEntry::builder("about")
+            .activate(move |_, _, _| {
+                // This will be handled by the window when it's created
+            })
+            .build();
 
         // Theme switching actions
-        let theme_light_action = SimpleAction::new("theme_light", None);
-        let style_manager = adw::StyleManager::default();
-        theme_light_action.connect_activate(move |_, _| {
-            style_manager.set_color_scheme(adw::ColorScheme::ForceLight);
-        });
-        self.app.add_action(&theme_light_action);
+        let action_theme_light = ActionEntry::builder("theme_light")
+            .activate(move |_, _, _| {
+                let style_manager = adw::StyleManager::default();
+                style_manager.set_color_scheme(adw::ColorScheme::ForceLight);
+            })
+            .build();
 
-        let theme_dark_action = SimpleAction::new("theme_dark", None);
-        let style_manager = adw::StyleManager::default();
-        theme_dark_action.connect_activate(move |_, _| {
-            style_manager.set_color_scheme(adw::ColorScheme::ForceDark);
-        });
-        self.app.add_action(&theme_dark_action);
+        let action_theme_dark = ActionEntry::builder("theme_dark")
+            .activate(move |_, _, _| {
+                let style_manager = adw::StyleManager::default();
+                style_manager.set_color_scheme(adw::ColorScheme::ForceDark);
+            })
+            .build();
 
-        let theme_auto_action = SimpleAction::new("theme_auto", None);
-        let style_manager = adw::StyleManager::default();
-        theme_auto_action.connect_activate(move |_, _| {
-            style_manager.set_color_scheme(adw::ColorScheme::Default);
-        });
-        self.app.add_action(&theme_auto_action);
+        let action_theme_auto = ActionEntry::builder("theme_auto")
+            .activate(move |_, _, _| {
+                let style_manager = adw::StyleManager::default();
+                style_manager.set_color_scheme(adw::ColorScheme::Default);
+            })
+            .build();
 
-        // Copy action for table cells
-        let copy_action = SimpleAction::new("copy", None);
-        self.app.add_action(&copy_action);
-
-        // Quit action
-        let quit_action = SimpleAction::new("quit", None);
-        let app = self.app.clone();
-        quit_action.connect_activate(move |_, _| {
-            app.quit();
-        });
-        self.app.add_action(&quit_action);
+        self.app.add_action_entries([
+            action_about,
+            action_theme_light,
+            action_theme_dark,
+            action_theme_auto,
+        ]);
     }
 
     fn run(&self) {
         let window = self.window.clone();
         let window_for_shutdown = window.clone();
+
+        // Set keyboard accelerators
+        self.app.set_accels_for_action("app.about", &["F1"]);
+        self.app
+            .set_accels_for_action("app.theme_light", &["<Ctrl>L"]);
+        self.app
+            .set_accels_for_action("app.theme_dark", &["<Ctrl>D"]);
+        self.app
+            .set_accels_for_action("app.theme_auto", &["<Ctrl>T"]);
 
         // Handle primary instance activation
         self.app.connect_activate(move |app| {

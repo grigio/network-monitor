@@ -20,8 +20,13 @@ src/
 ├── services/        # Business logic and system calls (shared)
 │   ├── network.rs       # Native socket parsing and process mapping
 │   ├── process_cache.rs # Process information caching for performance
-│   └── resolver.rs     # Address resolution utilities
+│   ├── resolver.rs     # Address resolution utilities
+│   └── tests.rs        # Comprehensive unit tests for core logic
 ├── utils/           # Helper functions (shared)
+│   ├── formatter.rs    # Consolidated formatting utilities for GTK/TUI
+│   ├── parsing.rs      # Hex parsing and common operations with error context
+│   ├── recovery.rs     # Graceful degradation and circuit breaker patterns
+│   └── mod.rs         # Module exports and shared utilities
 ├── error.rs         # Custom error types with thiserror
 └── error_tests.rs    # Error handling tests
 ```
@@ -30,6 +35,60 @@ src/
 See `Cargo.toml` for exact dependency versions and features.
 
 ## Common Patterns
+
+### Actions and Menus (GTK4 Guidelines)
+**IMPORTANT**: Always follow the official GTK4 actions and menus documentation at https://gtk-rs.org/gtk4-rs/stable/latest/book/actions.html#menus for implementing menus and actions.
+
+```rust
+use gio::ActionEntry;
+
+// Use ActionEntry builder pattern for actions
+let action_about = ActionEntry::builder("about")
+    .activate(move |window: &ApplicationWindow, _, _| {
+        // Action implementation
+    })
+    .build();
+
+// Add actions using add_action_entries method
+window.add_action_entries([action_about]);
+
+// Set keyboard accelerators
+app.set_accels_for_action("win.about", &["F1"]);
+
+// Create menu model with proper action references
+let menu = Menu::new();
+let section = Menu::new();
+section.append(Some("About"), Some("win.about"));
+menu.append_section(Some("Help"), &section);
+```
+
+**Key Requirements**:
+- Use `ActionEntry::builder()` instead of `SimpleAction::new()`
+- Use `add_action_entries()` instead of individual `add_action()` calls
+- Organize actions with proper prefixes: `app.*` for application-level, `win.*` for window-level
+- Set keyboard accelerators with `set_accels_for_action()`
+- Reference actions in menus using full action name (e.g., `"win.about"`)
+
+**Menu Styling (Adwaita)**:
+```css
+/* Fix double borders and transparency */
+popover {
+    border: none;
+    box-shadow: 0 4px 12px alpha(black, 0.12);
+    background: var(--popover-bg-color);
+}
+
+popover contents {
+    border: none;
+    box-shadow: none;
+    background: transparent;
+}
+
+menubutton > popover {
+    border: none;
+    box-shadow: 0 4px 12px alpha(black, 0.12);
+}
+```
 
 ### Async Operations with GTK
 ```rust
@@ -88,6 +147,15 @@ cargo test
 
 # Run tests with error handling coverage
 cargo test error_tests
+
+# Run security audit
+cargo audit
+
+# Run dependency checks
+cargo deny check
+
+# Run clippy lints
+cargo clippy -- -D warnings
 ```
 
 ## Critical Pitfalls
@@ -102,6 +170,59 @@ cargo test error_tests
 9. **Code Sharing**: Maintain shared modules (models, services, utils) to avoid duplication between GTK and TUI versions
 10. **Error Handling**: Use custom `NetworkMonitorError` types instead of `.unwrap()` calls for robust error recovery
 11. **Performance**: Utilize process caching and layout caching to reduce system calls and improve responsiveness
+12. **Security**: Regular dependency audits and automated security checks in CI pipeline
+13. **Code Quality**: Comprehensive unit tests, error recovery patterns, and consistent formatting utilities
+
+## GTK4 + Adwaita Styling Guidelines
+
+### CSS Variables and Colors
+- **Always use modern CSS variables** instead of deprecated GTK3 named colors
+- **Selection colors**: Use `var(--accent-bg-color)` and `var(--accent-fg-color)` for hover/selection states
+- **Deprecated colors**: Avoid `@theme_selected_bg_color`, `@theme_selected_fg_color` - use CSS variables instead
+- **Color mixing**: Use `color-mix(in srgb, var(--accent-bg-color) 85%, black)` for active states
+- **Proper opacity**: Use `alpha(var(--accent-bg-color), 0.15)` for subtle hover effects
+
+### Menu and Popover Styling
+- **Menu items**: Use `modelbutton` selector with proper hover/active/checked states
+- **Hover effect**: Background color change only, text color stays consistent with theme
+- **Popover styling**: Use `var(--popover-bg-color)` and `var(--popover-fg-color)` for menu containers
+- **Menu button**: Apply `.image-button` class with subtle hover effects using accent colors
+
+### Adwaita Style Classes
+- **Buttons**: Use `.suggested-action`, `.destructive-action`, `.flat`, `.circular`, `.pill` as appropriate
+- **Typography**: Use `.title-1` through `.title-4`, `.heading`, `.body`, `.caption`, `.monospace` classes
+- **Colors**: Apply `.accent`, `.success`, `.warning`, `.error` classes for semantic coloring
+- **Layout**: Use `.card`, `.boxed-list`, `.navigation-sidebar` for container styling
+
+### Theme Compatibility
+- **Light/Dark support**: Always test styling in both light and dark themes
+- **High contrast**: Use CSS variables that automatically adapt to high contrast mode
+- **System integration**: Follow GNOME HIG for consistent user experience
+- **Responsive design**: Ensure UI works well with different window sizes and scaling
+
+### Common Styling Patterns
+```css
+/* Correct menu item hover */
+modelbutton:hover {
+    background: var(--accent-bg-color);
+    color: var(--accent-fg-color);
+}
+
+/* Correct button hover */
+.image-button:hover {
+    background: alpha(var(--accent-bg-color), 0.15);
+}
+
+/* Use semantic color classes */
+.success { color: var(--success-color); }
+.warning { color: var(--warning-color); }
+.error { color: var(--error-color); }
+```
+
+### Resources
+- [Adwaita Style Classes](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1-latest/style-classes.html)
+- [CSS Variables Reference](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/1-latest/css-variables.html)
+- [GNOME HIG](https://developer.gnome.org/hig/)
 
 ## Implementation Details
 

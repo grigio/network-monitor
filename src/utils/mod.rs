@@ -1,3 +1,7 @@
 pub mod formatter;
+pub mod parsing;
+pub mod recovery;
 
-// pub use formatter::Formatter; // Used directly by GTK UI
+// Export formatter for both GTK and TUI
+pub use parsing::*;
+pub use recovery::*;

@@ -40,11 +40,17 @@ fi
 # Build the binaries
 echo "Building binaries..."
 if [ "$INSTALL_TYPE" = "system" ]; then
-    sudo -E RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup} /usr/bin/cargo build --release
+    if ! sudo -E RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup} /usr/bin/cargo build --release; then
+        echo "Error: Failed to build release binaries"
+        exit 1
+    fi
     GTK_BINARY_PATH="target/release/network-monitor"
     TUI_BINARY_PATH="target/release/nmt"
 else
-    cargo build
+    if ! cargo build; then
+        echo "Error: Failed to build debug binaries"
+        exit 1
+    fi
     GTK_BINARY_PATH="target/debug/network-monitor"
     TUI_BINARY_PATH="target/debug/nmt"
 fi
@@ -52,6 +58,14 @@ fi
 # Install binaries
 echo "Installing binaries to $BIN_DIR..."
 mkdir -p "$BIN_DIR"
+if [ ! -f "$GTK_BINARY_PATH" ]; then
+    echo "Error: GTK binary not found at $GTK_BINARY_PATH"
+    exit 1
+fi
+if [ ! -f "$TUI_BINARY_PATH" ]; then
+    echo "Error: TUI binary not found at $TUI_BINARY_PATH"
+    exit 1
+fi
 cp "$GTK_BINARY_PATH" "$BIN_DIR/"
 chmod 755 "$BIN_DIR/network-monitor"
 cp "$TUI_BINARY_PATH" "$BIN_DIR/"
@@ -102,7 +116,9 @@ if [ -d "icons" ]; then
     
     # Update icon cache
     echo "Updating icon cache..."
-    gtk-update-icon-cache -f -t "$ICON_DIR"
+    if ! gtk-update-icon-cache -f -t "$ICON_DIR"; then
+        echo "Warning: Could not update icon cache for $ICON_DIR"
+    fi
     
     # Also update system icon cache if doing local installation
     if [ "$INSTALL_TYPE" = "local" ] && [ -d "/usr/share/icons/hicolor" ]; then
@@ -116,7 +132,9 @@ fi
 
 # Update desktop database
 echo "Updating desktop database..."
-update-desktop-database "$APPLICATIONS_DIR"
+if ! update-desktop-database "$APPLICATIONS_DIR"; then
+    echo "Warning: Could not update desktop database for $APPLICATIONS_DIR"
+fi
 
 # Update the other desktop database as well
 if [ "$INSTALL_TYPE" = "system" ]; then
@@ -129,15 +147,15 @@ fi
 
 echo "$INSTALL_TYPE installation complete!"
 echo ""
-echo "📦 Installed binaries:"
-echo "  - network-monitor (GTK4 GUI)"
-echo "  - nmt (Terminal UI)"
+echo "Installed binaries:"
+echo "  - network-monitor GTK4 GUI"
+echo "  - nmt Terminal UI"
 echo ""
-echo "⚠️  IMPORTANT: To see the correct icon in GNOME Shell:"
-echo "1. Restart GNOME Shell (Alt+F2, type 'r', press Enter)"
+echo "IMPORTANT: To see the correct icon in GNOME Shell:"
+echo "1. Restart GNOME Shell: Alt+F2, type r, press Enter"
 echo "2. Or log out and log back in"
 echo ""
 echo "This ensures the icon cache is refreshed and your custom icon appears."
 echo ""
 echo "The GTK4 application should now be pinnable to the GNOME dock/dashboard."
-echo "You can run 'nmt' from any terminal to use the TUI version."
+echo "You can run nmt from any terminal to use the TUI version."

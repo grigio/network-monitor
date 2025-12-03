@@ -34,25 +34,27 @@ fi
 GTK_BINARY_PATH="$BIN_DIR/network-monitor"
 TUI_BINARY_PATH="$BIN_DIR/nmt"
 
+REMOVED_BINARIES=false
 if [ -f "$GTK_BINARY_PATH" ]; then
     echo "Removing GTK binary: $GTK_BINARY_PATH"
-    rm -f "$GTK_BINARY_PATH"
+    rm -f "$GTK_BINARY_PATH" && REMOVED_BINARIES=true
 else
     echo "Warning: GTK binary not found at $GTK_BINARY_PATH"
 fi
 
 if [ -f "$TUI_BINARY_PATH" ]; then
     echo "Removing TUI binary: $TUI_BINARY_PATH"
-    rm -f "$TUI_BINARY_PATH"
+    rm -f "$TUI_BINARY_PATH" && REMOVED_BINARIES=true
 else
     echo "Warning: TUI binary not found at $TUI_BINARY_PATH"
 fi
 
 # Remove desktop file
 DESKTOP_FILE="$APPLICATIONS_DIR/network-monitor.desktop"
+REMOVED_DESKTOP=false
 if [ -f "$DESKTOP_FILE" ]; then
     echo "Removing desktop file: $DESKTOP_FILE"
-    rm -f "$DESKTOP_FILE"
+    rm -f "$DESKTOP_FILE" && REMOVED_DESKTOP=true
 else
     echo "Warning: Desktop file not found at $DESKTOP_FILE"
 fi
@@ -103,9 +105,21 @@ fi
 
 echo "$INSTALL_TYPE uninstallation complete!"
 echo ""
-echo "🗑️  Removed components:"
-echo "  - network-monitor (GTK4 GUI binary)"
-echo "  - nmt (Terminal UI binary)"
-echo "  - Desktop file and icons"
+echo "Summary of removed components:"
+if [ "$REMOVED_BINARIES" = true ]; then
+    echo "  ✓ Binaries (network-monitor and nmt)"
+else
+    echo "  ✗ No binaries were removed"
+fi
+if [ "$REMOVED_DESKTOP" = true ]; then
+    echo "  ✓ Desktop file"
+else
+    echo "  ✗ Desktop file not found"
+fi
+if [ "$REMOVED_ANY" = true ]; then
+    echo "  ✓ Icons"
+else
+    echo "  ✗ No icons were removed"
+fi
 echo ""
-echo "You may need to restart GNOME Shell (Alt+F2, type 'r', press Enter) to see the changes."
+echo "You may need to restart GNOME Shell: Alt+F2, type r, press Enter to see the changes."

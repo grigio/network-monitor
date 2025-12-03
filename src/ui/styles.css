@@ -1,24 +1,20 @@
 .title {
     font-size: 1.2em;
     font-weight: 600;
-    color: @headerbar_fg_color;
+    color: var(--headerbar-fg-color);
     margin: 0 8px;
     transition: all 150ms ease;
 }
 
-@define-color dark_bg_alpha rgba(0, 0, 0, 0.3);
-@define-color dark_hover_alpha rgba(255, 255, 255, 0.08);
-@define-color dark_selected_alpha rgba(255, 255, 255, 0.12);
-
 .card {
     border: none;
     border-radius: 4px;
-    background: @view_bg_color;
+    background: var(--view-bg-color);
     box-shadow: none;
 }
 
 .view {
-    background: @view_bg_color;
+    background: var(--view-bg-color);
     border: none;
     outline: none;
 }
@@ -37,60 +33,58 @@
 }
 
 .header-container {
-    background: @headerbar_bg_color;
-    border-bottom: 2px solid alpha(@borders, 0.5);
+    background: var(--headerbar-bg-color);
+    border-bottom: 2px solid alpha(var(--borders), 0.5);
     border-radius: 4px 4px 0px 0px;
 }
 
 .table-header {
     font-weight: 600;
-    color: @headerbar_fg_color;
+    color: var(--headerbar-fg-color);
     font-size: 0.85em;
     text-transform: uppercase;
     letter-spacing: 0.2px;
     opacity: 0.9;
     padding: 6px 8px;
     margin: 0;
-    background: alpha(@headerbar_bg_color, 0.8);
+    background: alpha(var(--headerbar-bg-color), 0.8);
 }
 
 .table-header:hover {
-    background: alpha(@headerbar_bg_color, 0.9);
-    color: @accent_color;
+    background: alpha(var(--headerbar-bg-color), 0.9);
+    color: var(--accent-color);
 }
 
 .table-cell {
     padding: 4px 8px;
     margin: 0;
-    border-bottom: 1px solid alpha(@borders, 0.1);
+    border-bottom: 1px solid alpha(var(--borders), 0.1);
     background: transparent;
     transition: all 120ms ease;
 }
 
 .table-cell:hover {
-    background: alpha(@theme_bg_color, 0.3);
+    background: alpha(var(--theme-bg-color), 0.3);
 }
 
-
-
 .fixed-column {
-    background: @view_bg_color;
-    border-right: 1px solid alpha(@borders, 0.3);
+    background: var(--view-bg-color);
+    border-right: 1px solid alpha(var(--borders), 0.3);
 }
 
 .fixed-container {
-    border-right: 1px solid alpha(@borders, 0.3);
+    border-right: 1px solid alpha(var(--borders), 0.3);
 }
 
 .fixed-container grid:first-child {
-    border-bottom: 1px solid alpha(@borders, 0.3);
-    background: @headerbar_bg_color;
+    border-bottom: 1px solid alpha(var(--borders), 0.3);
+    background: var(--headerbar-bg-color);
     border-radius: 4px 0px 0px 0px;
 }
 
 .scrollable-container grid:first-child {
-    border-bottom: 1px solid alpha(@borders, 0.3);
-    background: @headerbar_bg_color;
+    border-bottom: 1px solid alpha(var(--borders), 0.3);
+    background: var(--headerbar-bg-color);
     border-radius: 0px 4px 0px 0px;
 }
 
@@ -110,29 +104,29 @@
     padding: 2px 4px;
     font-size: 0.85em;
     border: none;
-    color: @theme_fg_color;
+    color: var(--theme-fg-color);
 }
 
 .success {
-    color: @success_color;
+    color: var(--success-color);
     background: transparent;
     border: none;
 }
 
 .warning {
-    color: @warning_color;
+    color: var(--warning-color);
     background: transparent;
     border: none;
 }
 
 .error {
-    color: @error_color;
+    color: var(--error-color);
     background: transparent;
     border: none;
 }
 
 .accent {
-    color: @accent_color;
+    color: var(--accent-color);
     background: transparent;
     border: none;
 }
@@ -149,7 +143,7 @@
 }
 
 .info-group {
-    background: alpha(@theme_bg_color, 0.03);
+    background: alpha(var(--theme-bg-color), 0.03);
     border-radius: 4px;
     padding: 4px;
     margin-bottom: 3px;
@@ -165,10 +159,10 @@
 }
 
 grid {
-    background: @view_bg_color;
+    background: var(--view-bg-color);
     border-radius: 0px;
     border: none;
-    padding: 4px;
+    padding: 0;
     outline: none;
 }
 
@@ -178,13 +172,11 @@ grid > * {
 }
 
 scrolledwindow {
-    border: 1px solid alpha(@borders, 0.3);
+    border: 1px solid alpha(var(--borders), 0.3);
     border-radius: 4px;
-    min-width: 400px;
 }
 
 .table-container scrolledwindow > grid {
-    min-width: 400px;
 }
 
 label {
@@ -197,7 +189,7 @@ label {
 }
 
 label:not(.table-header):not(.table-cell):hover {
-    background: alpha(@theme_bg_color, 0.3);
+    background: alpha(var(--theme-bg-color), 0.3);
     box-shadow: none;
 }
 
@@ -214,12 +206,12 @@ button {
 }
 
 button:hover {
-    background: alpha(@theme_bg_color, 0.2);
+    background: alpha(var(--theme-bg-color), 0.2);
     box-shadow: none;
 }
 
 button:active {
-    background: alpha(@theme_bg_color, 0.3);
+    background: alpha(var(--theme-bg-color), 0.3);
     transform: none;
 }
 
@@ -229,11 +221,38 @@ button:active {
 }
 
 .flat:hover {
-    background: alpha(@theme_bg_color, 0.15);
+    background: alpha(var(--theme-bg-color), 0.15);
 }
 
 .image-button {
     padding: 4px;
+    min-width: 32px;
+    min-height: 32px;
+    border-radius: 6px;
+    transition: all 150ms ease;
+}
+
+.image-button:hover {
+    background: alpha(var(--accent-bg-color), 0.15);
+}
+
+.image-button:active {
+    background: alpha(var(--accent-bg-color), 0.25);
+}
+
+/* Enhanced menu button styling */
+.menu-button {
+    transition: all 150ms ease;
+}
+
+.menu-button:hover {
+    background: alpha(var(--accent-bg-color), 0.15);
+    box-shadow: 0 2px 8px alpha(var(--accent-bg-color), 0.1);
+}
+
+.menu-button:active {
+    background: alpha(var(--accent-bg-color), 0.25);
+    transform: scale(0.95);
 }
 
 .toggle {
@@ -243,10 +262,10 @@ button:active {
 }
 
 .toggle:checked {
-    background: @accent_bg_color;
-    color: @accent_fg_color;
-    border-color: @accent_bg_color;
-    box-shadow: 0 2px 6px alpha(@accent_bg_color, 0.3);
+    background: var(--accent-bg-color);
+    color: var(--accent-fg-color);
+    border-color: var(--accent-bg-color);
+    box-shadow: 0 2px 6px alpha(var(--accent-bg-color), 0.3);
 }
 
 statuspage {
@@ -256,7 +275,7 @@ statuspage {
 statuspage > title {
     font-size: 1.1em;
     font-weight: 500;
-    color: @headerbar_fg_color;
+    color: var(--headerbar-fg-color);
 }
 
 statuspage > description {
@@ -265,36 +284,39 @@ statuspage > description {
 }
 
 .row-selected {
-    background: alpha(@accent_bg_color, 0.1);
+    background: alpha(var(--accent-bg-color), 0.15);
     border: none;
-    color: @theme_fg_color;
+    color: var(--theme-fg-color);
     box-shadow: none;
 }
 
+.row-selected:hover {
+    background: alpha(var(--accent-bg-color), 0.2);
+}
+
 .badge:hover {
-    background: alpha(@theme_bg_color, 0.2);
+    background: alpha(var(--theme-bg-color), 0.2);
     transform: none;
     box-shadow: none;
 }
 
 .success:hover {
-    background: alpha(@theme_bg_color, 0.2);
+    background: alpha(var(--theme-bg-color), 0.2);
 }
 
 .warning:hover {
-    background: alpha(@theme_bg_color, 0.2);
+    background: alpha(var(--theme-bg-color), 0.2);
 }
 
 .error:hover {
-    background: alpha(@theme_bg_color, 0.2);
+    background: alpha(var(--theme-bg-color), 0.2);
 }
 
 .accent:hover {
-    background: alpha(@theme_bg_color, 0.2);
+    background: alpha(var(--theme-bg-color), 0.2);
 }
 
 .main-window {
-    min-width: 400px;
 }
 
 .centered-container {
@@ -303,17 +325,19 @@ statuspage > description {
 
 /* Improved table layout */
 .responsive-table {
-    min-width: 400px;
 }
 
 .responsive-table grid {
-    min-width: 400px;
 }
 
 /* Better sticky header */
 .sticky-header {
-    background: @headerbar_bg_color;
-    border-bottom: 2px solid alpha(@borders, 0.5);
+    background: var(--headerbar-bg-color);
+    border-bottom: 2px solid alpha(var(--borders), 0.5);
+}
+
+.sticky-header > box {
+    /* Overflow handled by GTK automatically */
 }
 
 /* Column width management using GTK-compatible properties */
@@ -322,7 +346,7 @@ statuspage > description {
 }
 
 .column-protocol {
-    min-width: 40px;
+    min-width: 35px;
 }
 
 .column-address {
@@ -330,18 +354,42 @@ statuspage > description {
 }
 
 .column-status {
-    min-width: 50px;
+    min-width: 60px;
 }
 
 .column-rate {
-    min-width: 60px;
+    min-width: 50px;
 }
 
 .column-path {
     min-width: 150px;
+    /* No max-width - let it expand naturally */
 }
 
+/* Fix grid layout for proper column alignment */
+grid {
+    background: var(--view-bg-color);
+    border-radius: 0px;
+    border: none;
+    padding: 0;
+    outline: none;
+}
 
+/* Ensure proper grid column behavior */
+grid > * {
+    margin: 0;
+    padding: 0;
+}
+
+/* Header grid specific styling */
+.header-container grid {
+    border-bottom: 2px solid alpha(var(--borders), 0.5);
+}
+
+/* Content grid specific styling */
+.table-container scrolledwindow > grid {
+    border-top: none;
+}
 
 /* Responsive adjustments for smaller content */
 .table-cell {
@@ -351,21 +399,152 @@ statuspage > description {
 /* Compact layout for better space utilization */
 .info-group {
     padding: 3px;
+    background: alpha(var(--theme-bg-color), 0.03);
 }
 
 .caption-heading {
     font-size: 0.95em;
 }
 
-/* Menu width constraints */
+/* Menu styling following GTK4 Adwaita guidelines */
 popover {
-    min-width: 80px;
+    min-width: 160px;
+    padding: 6px;
+    border-radius: 12px;
+    border: none;
+    box-shadow: 0 4px 12px alpha(black, 0.12);
+    background: var(--popover-bg-color);
+    outline: none;
+}
+
+/* Remove borders and ensure transparency - fix for double border */
+popover contents {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-top-left-radius: 0;
+    border-top-right-radius: 0;
+    box-shadow: none;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
 }
 
 menu {
-    min-width: 70px;
+    min-width: 160px;
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin: 0;
 }
 
 modelbutton {
-    min-width: 70px;
+    min-width: 148px;
+    padding: 8px 12px;
+    margin: 1px 2px;
+    border-radius: 6px;
+    transition: all 120ms ease;
+    border: none;
+    background: transparent;
+    color: var(--popover-fg-color);
+    font-weight: 400;
+    font-size: 0.9em;
+}
+
+modelbutton:hover {
+    background: var(--accent-bg-color);
+    color: var(--accent-fg-color);
+}
+
+modelbutton:active {
+    background: color-mix(in srgb, var(--accent-bg-color) 85%, black);
+    color: var(--accent-fg-color);
+}
+
+modelbutton:checked {
+    background: color-mix(in srgb, var(--accent-bg-color) 70%, black);
+    color: var(--accent-fg-color);
+}
+
+/* Menu separator styling */
+popover > separator {
+    margin: 4px 8px;
+    background: alpha(var(--borders), 0.15);
+    min-height: 1px;
+    border: none;
+}
+
+/* Menu arrow indicators */
+modelbutton arrow {
+    min-width: 16px;
+    opacity: 0.6;
+    color: var(--popover-fg-color);
+    transition: opacity 120ms ease;
+}
+
+modelbutton:hover arrow {
+    opacity: 1.0;
+}
+
+/* Enhanced menu button styling */
+menuitem {
+    min-width: 148px;
+    padding: 8px 12px;
+    margin: 1px 2px;
+    border-radius: 6px;
+    transition: all 120ms ease;
+    border: none;
+    background: transparent;
+    color: var(--popover-fg-color);
+    font-weight: 400;
+    font-size: 0.9em;
+}
+
+menuitem:hover {
+    background: var(--accent-bg-color);
+    color: var(--accent-fg-color);
+}
+
+menuitem:active {
+    background: color-mix(in srgb, var(--accent-bg-color) 85%, black);
+    color: var(--accent-fg-color);
+}
+
+/* Fix popover arrow transparency */
+popover arrow {
+    background: transparent;
+    border-color: transparent;
+}
+
+/* Ensure menu contents are transparent */
+popover > contents {
+    background: transparent;
+    border: none;
+}
+
+/* Remove window frame borders for popovers */
+window.csd.popup {
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.13);
+    border: none;
+}
+
+/* Remove any extra decorations */
+popover decoration {
+    margin: 0;
+    border: none;
+    padding: 0;
+    box-shadow: none;
+}
+
+/* Specific styling for MenuButton popover */
+menubutton > popover {
+    border: none;
+    box-shadow: 0 4px 12px alpha(black, 0.12);
+}
+
+/* Remove borders from menu contents specifically */
+menubutton > popover > contents {
+    border: none;
+    margin: 0;
+    padding: 0;
 }

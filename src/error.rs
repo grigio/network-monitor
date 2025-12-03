@@ -6,31 +6,31 @@ use std::sync::PoisonError;
 pub enum NetworkMonitorError {
     #[error("Failed to read /proc filesystem: {0}")]
     ProcIo(#[from] std::io::Error),
-    
+
     #[error("Invalid socket address format: {0}")]
     InvalidAddress(String),
-    
+
     #[error("Process not found: {0}")]
     ProcessNotFound(String),
-    
+
     #[error("Failed to parse network data: {0}")]
     ParseError(String),
-    
+
     #[error("Failed to parse hex value: {0}")]
     HexParseError(String),
-    
+
     #[error("Invalid PID format: {0}")]
     InvalidPid(String),
-    
+
     #[error("Mutex lock poisoned: {0}")]
     MutexPoison(String),
-    
+
     #[error("Failed to resolve hostname: {0}")]
     ResolutionError(String),
-    
+
     #[error("GTK initialization failed")]
     GtkInitError,
-    
+
     #[error("Terminal initialization failed")]
     TerminalError,
 }
@@ -54,7 +54,10 @@ impl<T> MutexResult<T> for std::result::Result<T, PoisonError<T>> {
 #[macro_export]
 macro_rules! error_context {
     ($result:expr, $context:expr) => {
-        $result.map_err(|e| $crate::error::NetworkMonitorError::from(e))
-            .map_err(|e| $crate::error::NetworkMonitorError::ParseError(format!("{}: {}", $context, e)))
+        $result
+            .map_err(|e| $crate::error::NetworkMonitorError::from(e))
+            .map_err(|e| {
+                $crate::error::NetworkMonitorError::ParseError(format!("{}: {}", $context, e))
+            })
     };
 }

@@ -1,8 +1,12 @@
 use crate::error::Result;
 use crate::models::{Connection, ProcessIO};
+use crate::utils::{
+    parse_decimal, parse_ipv4_hex, parse_ipv6_hex, parse_port, parse_tcp_state, split_socket_addr,
+    ErrorRecovery,
+};
 use std::collections::HashMap;
 use std::fs;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 use std::path::Path;
 use std::time::Instant;
 
@@ -22,13 +26,10 @@ impl NetworkService {
 
     /// Get all network connections using native Rust socket APIs
     pub fn get_connections(&self) -> Result<Vec<Connection>> {
-        let mut connections = Vec::new();
-
-        // Get TCP connections
-        connections.extend(self.get_tcp_connections()?);
-
-        // Get UDP connections
-        connections.extend(self.get_udp_connections()?);
+        let connections = ErrorRecovery::get_connections_with_fallback(
+            || self.get_tcp_connections(),
+            || self.get_udp_connections(),
+        );
 
         Ok(connections)
     }
@@ -37,18 +38,26 @@ impl NetworkService {
     fn get_tcp_connections(&self) -> Result<Vec<Connection>> {
         let mut connections = Vec::new();
 
-        let tcp_data = fs::read_to_string("/proc/net/tcp")?;
-        for line in tcp_data.lines().skip(1) {
-            if let Some(conn) = self.parse_proc_net_line(line, "tcp", "LISTEN")? {
-                connections.push(conn);
+        // Try IPv4 TCP connections
+        if let Ok(tcp_data) = fs::read_to_string("/proc/net/tcp") {
+            for line in tcp_data.lines().skip(1) {
+                if let Some(conn) = self.parse_proc_net_line(line, "tcp", "LISTEN")? {
+                    connections.push(conn);
+                }
             }
+        } else {
+            eprintln!("Warning: Could not read /proc/net/tcp");
         }
 
-        let tcp6_data = fs::read_to_string("/proc/net/tcp6")?;
-        for line in tcp6_data.lines().skip(1) {
-            if let Some(conn) = self.parse_proc_net_line(line, "tcp6", "LISTEN")? {
-                connections.push(conn);
+        // Try IPv6 TCP connections
+        if let Ok(tcp6_data) = fs::read_to_string("/proc/net/tcp6") {
+            for line in tcp6_data.lines().skip(1) {
+                if let Some(conn) = self.parse_proc_net_line(line, "tcp6", "LISTEN")? {
+                    connections.push(conn);
+                }
             }
+        } else {
+            eprintln!("Warning: Could not read /proc/net/tcp6");
         }
 
         Ok(connections)
@@ -58,18 +67,26 @@ impl NetworkService {
     fn get_udp_connections(&self) -> Result<Vec<Connection>> {
         let mut connections = Vec::new();
 
-        let udp_data = fs::read_to_string("/proc/net/udp")?;
-        for line in udp_data.lines().skip(1) {
-            if let Some(conn) = self.parse_proc_net_line(line, "udp", "")? {
-                connections.push(conn);
+        // Try IPv4 UDP connections
+        if let Ok(udp_data) = fs::read_to_string("/proc/net/udp") {
+            for line in udp_data.lines().skip(1) {
+                if let Some(conn) = self.parse_proc_net_line(line, "udp", "")? {
+                    connections.push(conn);
+                }
             }
+        } else {
+            eprintln!("Warning: Could not read /proc/net/udp");
         }
 
-        let udp6_data = fs::read_to_string("/proc/net/udp6")?;
-        for line in udp6_data.lines().skip(1) {
-            if let Some(conn) = self.parse_proc_net_line(line, "udp6", "")? {
-                connections.push(conn);
+        // Try IPv6 UDP connections
+        if let Ok(udp6_data) = fs::read_to_string("/proc/net/udp6") {
+            for line in udp6_data.lines().skip(1) {
+                if let Some(conn) = self.parse_proc_net_line(line, "udp6", "")? {
+                    connections.push(conn);
+                }
             }
+        } else {
+            eprintln!("Warning: Could not read /proc/net/udp6");
         }
 
         Ok(connections)
@@ -98,10 +115,7 @@ impl NetworkService {
 
         // Get the inode from the connection
         let inode = if parts.len() > 9 {
-            parts[9].parse::<u64>()
-                .map_err(|e| crate::error::NetworkMonitorError::HexParseError(
-                    format!("Failed to parse inode '{}': {}", parts[9], e)
-                ))?
+            parse_decimal(parts[9], "inode").unwrap_or(0)
         } else {
             0
         };
@@ -121,45 +135,20 @@ impl NetworkService {
 
     /// Parse socket address from /proc/net format
     fn parse_socket_addr(&self, addr_str: &str) -> Result<String> {
-        let parts: Vec<&str> = addr_str.split(':').collect();
-        if parts.len() != 2 {
-            return Err(crate::error::NetworkMonitorError::InvalidAddress(
-                format!("Invalid address format: {}", addr_str)
-            ));
-        }
-
-        let ip_hex = parts[0];
-        let port_hex = parts[1];
-
-        let port = u16::from_str_radix(port_hex, 16)
-            .map_err(|e| crate::error::NetworkMonitorError::HexParseError(
-                format!("Failed to parse port '{}': {}", port_hex, e)
-            ))?;
+        let (ip_hex, port_hex) = split_socket_addr(addr_str)?;
+        let port = parse_port(port_hex)?;
 
         let ip = if ip_hex.len() == 8 {
             // IPv4 (hex is in little-endian format)
-            let mut bytes = [0u8; 4];
-            for (i, chunk) in (0..ip_hex.len()).step_by(2).enumerate() {
-                bytes[3 - i] = u8::from_str_radix(&ip_hex[chunk..chunk + 2], 16)
-                    .map_err(|e| crate::error::NetworkMonitorError::HexParseError(
-                        format!("Failed to parse IPv4 byte '{}': {}", &ip_hex[chunk..chunk + 2], e)
-                    ))?;
-            }
-            IpAddr::V4(Ipv4Addr::from(bytes))
+            IpAddr::V4(parse_ipv4_hex(ip_hex)?)
         } else if ip_hex.len() == 32 {
             // IPv6
-            let mut bytes = [0u8; 16];
-            for (i, chunk) in (0..ip_hex.len()).step_by(2).enumerate() {
-                bytes[i] = u8::from_str_radix(&ip_hex[chunk..chunk + 2], 16)
-                    .map_err(|e| crate::error::NetworkMonitorError::HexParseError(
-                        format!("Failed to parse IPv6 byte '{}': {}", &ip_hex[chunk..chunk + 2], e)
-                    ))?;
-            }
-            IpAddr::V6(Ipv6Addr::from(bytes))
+            IpAddr::V6(parse_ipv6_hex(ip_hex)?)
         } else {
-            return Err(crate::error::NetworkMonitorError::InvalidAddress(
-                format!("Invalid IP hex length: {} (expected 8 or 32)", ip_hex.len())
-            ));
+            return Err(crate::error::NetworkMonitorError::InvalidAddress(format!(
+                "Invalid IP hex length: {} (expected 8 or 32)",
+                ip_hex.len()
+            )));
         };
 
         Ok(format!("{ip}:{port}"))
@@ -167,25 +156,7 @@ impl NetworkService {
 
     /// Parse TCP state from hex value
     fn parse_tcp_state(&self, state_hex: &str) -> String {
-        if let Ok(state_val) = u8::from_str_radix(state_hex, 16) {
-            match state_val {
-                0x01 => "ESTABLISHED".to_string(),
-                0x02 => "SYN_SENT".to_string(),
-                0x03 => "SYN_RECV".to_string(),
-                0x04 => "FIN_WAIT1".to_string(),
-                0x05 => "FIN_WAIT2".to_string(),
-                0x06 => "TIME_WAIT".to_string(),
-                0x07 => "CLOSE".to_string(),
-                0x08 => "CLOSE_WAIT".to_string(),
-                0x09 => "LAST_ACK".to_string(),
-                0x0A => "LISTEN".to_string(),
-                0x0B => "CLOSING".to_string(),
-                0x0C => "NEW_SYN_RECV".to_string(),
-                _ => format!("UNKNOWN({state_val})"),
-            }
-        } else {
-            "UNKNOWN".to_string()
-        }
+        parse_tcp_state(state_hex)
     }
 
     /// Get process info for a given socket inode
@@ -225,9 +196,13 @@ impl NetworkService {
                             let inode_str = &link_str[8..link_str.len() - 1];
                             if let Ok(inode) = inode_str.parse::<u64>() {
                                 if inode == target_inode {
-                                    let pid_str = proc_path.file_name()?.to_str()?;
-                                    let program = self.get_process_name(pid_str);
-                                    let command = self.get_process_path(pid_str);
+                                    let pid_str = proc_path
+                                        .file_name()
+                                        .and_then(|n| n.to_str())
+                                        .unwrap_or("unknown")
+                                        .to_string();
+                                    let program = self.get_process_name(&pid_str);
+                                    let command = self.get_process_path(&pid_str);
                                     return Some((program, command));
                                 }
                             }
@@ -256,6 +231,7 @@ impl NetworkService {
     /// Get I/O statistics for a process
     pub fn get_process_io(&self, pid: &str) -> ProcessIO {
         let io_path = format!("/proc/{pid}/io");
+        // Skip if we can't access the process io file (permission denied for other users' processes)
         if let Ok(io_data) = fs::read_to_string(&io_path) {
             let mut rx_bytes = 0u64;
             let mut tx_bytes = 0u64;
@@ -347,9 +323,3 @@ impl Default for NetworkService {
         Self::new()
     }
 }
-
-
-
-
-
-

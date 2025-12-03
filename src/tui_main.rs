@@ -1,11 +1,13 @@
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
+    event::{
+        self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use error::Result;
 use models::Connection;
-use services::{NetworkService, AddressResolver};
+use services::{AddressResolver, NetworkService};
 use std::collections::HashMap;
 use std::io;
 use std::time::{Duration, Instant};
@@ -17,6 +19,7 @@ use tui::{
     widgets::{Block, Borders, Row, Table, TableState},
     Frame, Terminal,
 };
+use utils::formatter::Formatter;
 
 // Import shared modules
 mod error;
@@ -46,7 +49,8 @@ impl LayoutCache {
     }
 
     fn is_valid(&self, width: u16) -> bool {
-        self.available_width == width && self.last_calculation.elapsed() < Duration::from_secs(5)
+        self.available_width == width
+            && self.last_calculation.elapsed() < Duration::from_millis(500)
     }
 }
 
@@ -75,8 +79,8 @@ impl App {
             table_state: TableState::default(),
             last_update: Instant::now(),
             auto_refresh: true,
-            sort_column: 6,  // RX column
-            sort_ascending: false,  // Descending order
+            sort_column: 6,        // RX column
+            sort_ascending: false, // Descending order
             horizontal_scroll: 0,
             layout_cache: LayoutCache::new(),
         };
@@ -87,7 +91,10 @@ impl App {
     fn update_connections(&mut self) {
         match self.network_service.get_connections() {
             Ok(connections) => {
-                match self.network_service.update_connection_rates(connections, &self.previous_io) {
+                match self
+                    .network_service
+                    .update_connection_rates(connections, &self.previous_io)
+                {
                     Ok((updated_connections, current_io)) => {
                         self.connections = updated_connections;
                         self.previous_io = current_io;
@@ -101,7 +108,9 @@ impl App {
                 }
             }
             Err(e) => {
-                // Log error but continue with existing data
+                // Log error but continue with existing data - handle permission errors gracefully
+                eprintln!("Failed to get connections: {}", e);
+                // Don't update connections on error, keep existing data
                 eprintln!("Failed to get connections: {}", e);
             }
         }
@@ -168,13 +177,15 @@ impl App {
     }
 
     fn scroll_left(&mut self) {
+        // Scroll 5 columns at a time for faster navigation
         if self.horizontal_scroll > 0 {
-            self.horizontal_scroll -= 1;
+            self.horizontal_scroll = self.horizontal_scroll.saturating_sub(5);
         }
     }
 
     fn scroll_right(&mut self) {
-        self.horizontal_scroll += 1;
+        // Scroll 5 columns at a time for faster navigation, but don't exceed bounds
+        self.horizontal_scroll = (self.horizontal_scroll + 5).min(7);
     }
 
     fn toggle_resolver(&mut self) {
@@ -185,27 +196,9 @@ impl App {
     }
 }
 
+// Use the consolidated formatter from utils
 fn format_bytes(bytes: u64) -> String {
-    const UNITS: &[&str] = &["B/s", "KB/s", "MB/s", "GB/s"];
-    
-    if bytes < 1024 {
-        // Fast path for small values
-        return format!("{} {}", bytes, UNITS[0]);
-    }
-    
-    let mut size = bytes as f64;
-    let mut unit_index = 0;
-
-    while size >= 1024.0 && unit_index < UNITS.len() - 1 {
-        size /= 1024.0;
-        unit_index += 1;
-    }
-
-    if unit_index == 0 {
-        format!("{} {}", bytes, UNITS[unit_index])
-    } else {
-        format!("{:.1} {}", size, UNITS[unit_index])
-    }
+    Formatter::format_bytes(bytes)
 }
 
 fn ui(f: &mut Frame, app: &mut App) {
@@ -268,7 +261,14 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Connections table
     let header_cells = [
-        "Process(ID)", "Protocol", "Source", "Destination", "Status", "TX", "RX", "Path",
+        "Process(ID)",
+        "Protocol",
+        "Source",
+        "Destination",
+        "Status",
+        "TX",
+        "RX",
+        "Path",
     ]
     .iter()
     .enumerate()
@@ -339,15 +339,18 @@ fn ui(f: &mut Frame, app: &mut App) {
     // Calculate visible columns based on horizontal scroll with caching
     let total_columns: usize = 8;
     let available_width = chunks[1].width.saturating_sub(2) as usize; // Subtract borders
-    let column_widths = [15, 10, 18, 22, 12, 10, 12, 15]; // Stable minimum widths
+    let column_widths = [15, 10, 18, 22, 12, 10, 12, 40]; // Stable minimum widths - increased Path column width
     let start_col = app.horizontal_scroll.min(total_columns.saturating_sub(1));
-    
+
     // Check if we can use cached layout
     let (visible_columns, remaining_width) = if app.layout_cache.is_valid(chunks[1].width) {
         (
             app.layout_cache.visible_columns.clone(),
             available_width.saturating_sub(
-                app.layout_cache.visible_columns.iter().enumerate()
+                app.layout_cache
+                    .visible_columns
+                    .iter()
+                    .enumerate()
                     .map(|(i, &col_idx)| {
                         if i < column_widths.len() {
                             column_widths[col_idx]
@@ -355,8 +358,9 @@ fn ui(f: &mut Frame, app: &mut App) {
                             10
                         }
                     })
-                    .sum::<usize>() + app.layout_cache.visible_columns.len().saturating_sub(1)
-            )
+                    .sum::<usize>()
+                    + app.layout_cache.visible_columns.len().saturating_sub(1),
+            ),
         )
     } else {
         // Recalculate layout
@@ -364,7 +368,12 @@ fn ui(f: &mut Frame, app: &mut App) {
         let mut current_width = 0;
 
         // Determine which columns to show - be more conservative to avoid frequent changes
-        for (i, &width) in column_widths.iter().enumerate().skip(start_col).take(total_columns - start_col) {
+        for (i, &width) in column_widths
+            .iter()
+            .enumerate()
+            .skip(start_col)
+            .take(total_columns - start_col)
+        {
             // Add small buffer to prevent flickering when width is borderline
             let required_width = width + 2; // +2 for padding and buffer
             if current_width + required_width <= available_width || visible_columns.is_empty() {
@@ -391,7 +400,16 @@ fn ui(f: &mut Frame, app: &mut App) {
     };
 
     // Create header with visible columns only
-    let header_titles = ["Process(ID)", "Protocol", "Source", "Destination", "Status", "TX", "RX", "Path"];
+    let header_titles = [
+        "Process(ID)",
+        "Protocol",
+        "Source",
+        "Destination",
+        "Status",
+        "TX",
+        "RX",
+        "Path",
+    ];
     let visible_header_cells: Vec<_> = visible_columns
         .iter()
         .map(|&col_idx| {
@@ -402,19 +420,23 @@ fn ui(f: &mut Frame, app: &mut App) {
             } else {
                 Style::default().fg(Color::Gray)
             };
-            
+
             let arrow = if col_idx == app.sort_column {
-                if app.sort_ascending { " ↑" } else { " ↓" }
+                if app.sort_ascending {
+                    " ↑"
+                } else {
+                    " ↓"
+                }
             } else {
                 ""
             };
-            
+
             let title = if col_idx < header_titles.len() {
                 header_titles[col_idx]
             } else {
                 ""
             };
-            
+
             Span::styled(format!("{}{}", title, arrow), style)
         })
         .collect();
@@ -468,7 +490,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 } else {
                     "".to_string()
                 };
-                
+
                 // Don't truncate last column - give it full remaining space
                 let is_last_column = i == visible_columns.len().saturating_sub(1);
                 let max_width = if is_last_column {
@@ -479,7 +501,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                 } else {
                     10
                 };
-                
+
                 let truncated = if !is_last_column && cell_content.len() > max_width {
                     format!("{}...", &cell_content[..max_width.saturating_sub(3)])
                 } else {
@@ -512,19 +534,22 @@ fn ui(f: &mut Frame, app: &mut App) {
     let table = if !visible_constraints.is_empty() {
         Table::new(visible_rows, visible_constraints)
             .header(visible_header)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .title(format!("Network Connections (scroll: ← → | col {}/{})", 
-                        start_col + 1, total_columns)),
-            )
+            .block(Block::default().borders(Borders::ALL).title(format!(
+                "Network Connections (scroll: ← → | col {}/{})",
+                start_col + 1,
+                total_columns
+            )))
             .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
     } else {
         // Fallback table if no columns fit
         let empty_rows: Vec<Row> = vec![];
         Table::new(empty_rows, [Constraint::Min(10)])
             .header(Row::new([Span::raw("No space")]))
-            .block(Block::default().borders(Borders::ALL).title("Network Connections"))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .title("Network Connections"),
+            )
             .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED))
     };
 
@@ -537,12 +562,18 @@ fn ui(f: &mut Frame, app: &mut App) {
         Span::raw(":quit "),
         Span::styled("r", Style::default().fg(Color::Cyan)),
         Span::raw(":resolver "),
+        Span::styled("R", Style::default().fg(Color::Cyan)),
+        Span::raw(":refresh "),
         Span::styled("a", Style::default().fg(Color::Yellow)),
         Span::raw(":auto-refresh "),
         Span::styled("↑↓", Style::default().fg(Color::Green)),
         Span::raw(":navigate "),
         Span::styled("←→", Style::default().fg(Color::Blue)),
-        Span::raw(":scroll "),
+        Span::raw(":scroll(5) "),
+        Span::styled("Shift+←→", Style::default().fg(Color::Blue)),
+        Span::raw(":jump "),
+        Span::styled("Home/End", Style::default().fg(Color::Blue)),
+        Span::raw(":jump "),
         Span::styled("1-8", Style::default().fg(Color::Magenta)),
         Span::raw(":sort "),
     ])];
@@ -553,7 +584,19 @@ fn ui(f: &mut Frame, app: &mut App) {
 }
 
 fn main() -> Result<()> {
-    enable_raw_mode()?;
+    // Try to enable raw mode with better error handling
+    match enable_raw_mode() {
+        Ok(()) => {
+            // Continue with terminal setup
+        }
+        Err(e) => {
+            eprintln!("Error: Cannot initialize terminal.");
+            eprintln!("This usually means you're not in a real terminal.");
+            eprintln!("Try running 'nmt' in a proper terminal, not an IDE or script.");
+            eprintln!("Technical details: {}", e);
+            std::process::exit(1);
+        }
+    }
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
@@ -562,21 +605,44 @@ fn main() -> Result<()> {
     let mut app = App::new();
     let mut last_tick = Instant::now();
 
-    loop {
-        terminal.draw(|f| ui(f, &mut app))?;
+    let mut last_input_time = Instant::now();
+    let mut needs_data_update = false;
 
-        let timeout = Duration::from_millis(100);
+    loop {
+        // Check for user input first - this is the priority
+        let timeout = Duration::from_millis(16); // ~60 FPS
+
         if crossterm::event::poll(timeout)? {
+            last_input_time = Instant::now();
+
             if let Event::Key(key) = event::read()? {
                 if key.kind == KeyEventKind::Press {
                     match key.code {
                         KeyCode::Char('q') => break,
                         KeyCode::Char('r') => app.toggle_resolver(),
+                        KeyCode::Char('R') => needs_data_update = true, // Mark for update, don't block
                         KeyCode::Char('a') => app.auto_refresh = !app.auto_refresh,
                         KeyCode::Up => app.previous_row(),
                         KeyCode::Down => app.next_row(),
-                        KeyCode::Left => app.scroll_left(),
-                        KeyCode::Right => app.scroll_right(),
+                        KeyCode::Left => {
+                            if key.modifiers.contains(KeyModifiers::SHIFT)
+                                || key.modifiers.contains(KeyModifiers::CONTROL)
+                            {
+                                app.horizontal_scroll = app.horizontal_scroll.saturating_sub(7);
+                            // Fast scroll to start
+                            } else {
+                                app.scroll_left(); // Normal scroll moves 5 columns
+                            }
+                        }
+                        KeyCode::Right => {
+                            if key.modifiers.contains(KeyModifiers::SHIFT)
+                                || key.modifiers.contains(KeyModifiers::CONTROL)
+                            {
+                                app.horizontal_scroll = 7; // Fast scroll to end
+                            } else {
+                                app.scroll_right(); // Normal scroll moves 5 columns
+                            }
+                        }
                         KeyCode::Char('1') => app.toggle_sort(0),
                         KeyCode::Char('2') => app.toggle_sort(1),
                         KeyCode::Char('3') => app.toggle_sort(2),
@@ -585,17 +651,27 @@ fn main() -> Result<()> {
                         KeyCode::Char('6') => app.toggle_sort(5),
                         KeyCode::Char('7') => app.toggle_sort(6),
                         KeyCode::Char('8') => app.toggle_sort(7),
+                        KeyCode::Home => app.horizontal_scroll = 0,
+                        KeyCode::End => app.horizontal_scroll = 7, // Last column index
                         _ => {}
                     }
                 }
             }
         }
 
-        // Auto-refresh if enabled
-        if app.auto_refresh && last_tick.elapsed() >= Duration::from_secs(2) {
+        // Only update data when user is idle AND we need to update
+        if needs_data_update
+            || (app.auto_refresh
+                && last_input_time.elapsed() >= Duration::from_millis(500)
+                && last_tick.elapsed() >= Duration::from_secs(2))
+        {
             app.update_connections();
             last_tick = Instant::now();
+            needs_data_update = false;
         }
+
+        // Always draw last - this ensures instant UI response
+        terminal.draw(|f| ui(f, &mut app))?;
     }
 
     disable_raw_mode()?;

@@ -1,11 +1,8 @@
-
 use crate::models::connection::ProcessInfo;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
-
-
 
 /// Cache for mapping socket inodes to process information
 pub struct ProcessCache {
@@ -31,9 +28,10 @@ impl ProcessCache {
             return ("N/A".to_string(), "N/A".to_string(), "N/A".to_string());
         }
 
-        // Update cache if needed
+        // Update cache if needed - handle errors gracefully
         if self.last_update.elapsed() > self.update_interval {
-            self.update_cache();
+            // Ignore cache update errors to prevent app crashes
+            let _ = self.update_cache();
         }
 
         // Check cache first
@@ -52,7 +50,7 @@ impl ProcessCache {
     }
 
     /// Update the cache by scanning /proc filesystem
-    fn update_cache(&mut self) {
+    fn update_cache(&mut self) -> std::result::Result<(), crate::error::NetworkMonitorError> {
         let mut new_inode_to_pid = HashMap::new();
         let mut new_pid_to_process = HashMap::new();
 
@@ -86,6 +84,7 @@ impl ProcessCache {
         self.inode_to_pid = new_inode_to_pid;
         self.pid_to_process = new_pid_to_process;
         self.last_update = Instant::now();
+        Ok(())
     }
 
     /// Get process details from /proc
@@ -130,6 +129,7 @@ impl ProcessCache {
         if let Ok(fd_dir) = fs::read_dir(&fd_path) {
             for fd_entry in fd_dir.flatten() {
                 let fd_link_path = fd_entry.path();
+                // Skip file descriptors we can't read (permission denied for other users' processes)
                 if let Ok(link_target) = fs::read_link(&fd_link_path) {
                     if let Some(link_str) = link_target.to_str() {
                         if link_str.starts_with("socket:[") && link_str.ends_with(']') {

@@ -1,5 +1,5 @@
 use adw::{prelude::*, AboutWindow, Application, ApplicationWindow, HeaderBar};
-use gio::Menu;
+use gio::{ActionEntry, Menu};
 use glib::timeout_add_seconds_local;
 use gtk::{
     Align, Box as GtkBox, Grid, Label, MenuButton, Orientation, PopoverMenu, ScrolledWindow,
@@ -38,8 +38,8 @@ impl NetworkMonitorWindow {
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Network Monitor")
-            .default_width(500)
-            .default_height(700)
+            .default_width(480) // 40% reduction from 800
+            .default_height(600)
             .resizable(true)
             .build();
 
@@ -57,14 +57,14 @@ impl NetworkMonitorWindow {
             .column_spacing(0)
             .row_spacing(0)
             .halign(Align::Fill)
-            .hexpand(true)
+            .hexpand(false) // Don't let grid force expansion
             .build();
 
         let content_grid = Grid::builder()
             .column_spacing(0)
             .row_spacing(0)
             .halign(Align::Fill)
-            .hexpand(true)
+            .hexpand(false) // Don't let grid force expansion
             .build();
 
         let resolve_toggle = gtk::CheckButton::builder()
@@ -123,6 +123,7 @@ impl NetworkMonitorWindow {
 
         monitor.setup_grid();
         monitor.setup_ui();
+        monitor.setup_actions();
         monitor.setup_column_sync();
         monitor.setup_close_handler();
         monitor.start_monitoring();
@@ -256,10 +257,12 @@ impl NetworkMonitorWindow {
         // Create enhanced menu button
         let menu_button = MenuButton::builder()
             .icon_name("open-menu-symbolic")
-            .tooltip_text("Menu")
+            .tooltip_text("Application Menu")
             .build();
         menu_button.add_css_class("flat");
         menu_button.add_css_class("image-button");
+        menu_button.add_css_class("circular"); // More Adwaita-compliant
+        menu_button.add_css_class("menu-button"); // Custom class for enhanced styling
         menu_button.set_margin_end(4);
         let menu_model = self.create_menu_model();
         menu_button.set_menu_model(Some(&menu_model));
@@ -280,54 +283,64 @@ impl NetworkMonitorWindow {
         table_container.add_css_class("table-container");
         table_container.add_css_class("responsive-table");
 
-        // Create header container with sticky behavior
+        // Create header container with sticky behavior and overflow handling
         let header_container = GtkBox::builder()
             .orientation(Orientation::Vertical)
             .hexpand(true)
             .build();
         header_container.add_css_class("header-container");
         header_container.add_css_class("sticky-header");
-        header_container.append(&self.header_grid);
 
-        // Create scrolled window for content with responsive behavior
+        // Wrap header grid in a container that allows horizontal overflow
+        let header_wrapper = GtkBox::builder()
+            .orientation(Orientation::Horizontal)
+            .hexpand(true)
+            .build();
+        header_wrapper.append(&self.header_grid);
+        header_container.append(&header_wrapper);
+
+        // Create scrolled window for content with proper constraints
         let scrolled = ScrolledWindow::builder()
             .vexpand(true)
             .hexpand(true)
             .halign(Align::Fill)
             .height_request(400)
-            .min_content_width(450)
+            .width_request(-1) // Let it be constrained by parent
             .build();
         scrolled.set_policy(gtk::PolicyType::Automatic, gtk::PolicyType::Automatic);
         scrolled.add_css_class("table-container");
         scrolled.add_css_class("responsive-table");
         scrolled.set_child(Some(&self.content_grid));
 
-        // Improved horizontal scrolling synchronization
-        let header_grid_clone1 = self.header_grid.clone();
-        let header_grid_clone2 = self.header_grid.clone();
+        // Proper horizontal scrolling synchronization
+        let header_grid_clone = self.header_grid.clone();
         let scrolled_clone = scrolled.clone();
 
-        // Get horizontal adjustment for smooth scrolling sync
+        // Get horizontal adjustment for scrolling sync
         let hadjustment = scrolled.hadjustment();
 
-        // Sync header position with horizontal scroll
+        // Sync header position with content horizontal scroll
         hadjustment.connect_value_notify(move |hadj| {
             let scroll_value = hadj.value();
-            header_grid_clone1.set_margin_start(-(scroll_value.round() as i32));
+
+            // Apply negative margin to header grid to simulate horizontal scrolling
+            // This keeps header aligned with content columns
+            header_grid_clone.set_margin_start(-(scroll_value.round() as i32));
         });
 
-        // Handle edge cases for overscroll
-        scrolled.connect_edge_overshot(move |_, pos| {
+        // Handle edge cases for overscroll to maintain alignment
+        let header_grid_clone2 = self.header_grid.clone();
+        let scrolled_clone2 = scrolled.clone();
+        scrolled_clone.connect_edge_overshot(move |_, pos| {
             if pos == gtk::PositionType::Left || pos == gtk::PositionType::Right {
-                let hadjustment = scrolled_clone.hadjustment();
+                let hadjustment = scrolled_clone2.hadjustment();
                 let scroll_value = hadjustment.value();
                 header_grid_clone2.set_margin_start(-(scroll_value.round() as i32));
             }
         });
 
-        // Ensure header and content have same width constraints
-        self.content_grid.set_size_request(450, -1);
-        self.header_grid.set_size_request(450, -1);
+        // Remove fixed size constraints to let grid be more flexible
+        // The CSS min-widths will handle the minimum sizing
 
         table_container.append(&header_container);
         table_container.append(&scrolled);
@@ -490,18 +503,40 @@ impl NetworkMonitorWindow {
         );
     }
 
+    fn setup_actions(&self) {
+        // About action for the window
+        let action_about = ActionEntry::builder("about")
+            .activate(move |window: &ApplicationWindow, _, _| {
+                NetworkMonitorWindow::show_about_dialog(window);
+            })
+            .build();
+        self.window.add_action_entries([action_about]);
+
+        // Set keyboard accelerator for window-specific about action
+        if let Some(app) = self.window.application() {
+            app.set_accels_for_action("win.about", &["<Shift>F1"]);
+        }
+    }
+
     fn create_menu_model(&self) -> Menu {
         let menu = Menu::new();
-        menu.append(Some("Refresh"), Some("app.refresh"));
 
-        // Create theme submenu
-        let theme_submenu = Menu::new();
-        theme_submenu.append(Some("Light"), Some("app.theme_light"));
-        theme_submenu.append(Some("Dark"), Some("app.theme_dark"));
-        theme_submenu.append(Some("Auto"), Some("app.theme_auto"));
+        // Theme selection section with better organization
+        let theme_section = Menu::new();
+        theme_section.append(Some("Light Theme"), Some("app.theme_light"));
+        theme_section.append(Some("Dark Theme"), Some("app.theme_dark"));
+        theme_section.append(Some("Follow System"), Some("app.theme_auto"));
 
-        menu.append_submenu(Some("Theme"), &theme_submenu);
-        menu.append(Some("About"), Some("app.about"));
+        menu.append_section(Some("Appearance"), &theme_section);
+
+        // Add separator
+        menu.append_section(None, &Menu::new());
+
+        // About section
+        let about_section = Menu::new();
+        about_section.append(Some("About Network Monitor"), Some("win.about"));
+
+        menu.append_section(Some("Help"), &about_section);
         menu
     }
 
@@ -521,6 +556,12 @@ impl NetworkMonitorWindow {
                 self.content_grid.remove(widget);
             }
             row_widgets.clear();
+        }
+
+        // Clear selection when table is rebuilt
+        {
+            let mut selected = self.selected_row.borrow_mut();
+            *selected = None;
         }
 
         // Get connections
@@ -596,11 +637,20 @@ impl NetworkMonitorWindow {
 
             for (col, text) in columns.iter().enumerate() {
                 let text_for_closures = text.clone(); // Clone for closures
-                let label = Label::builder()
-                    .label(text)
-                    .ellipsize(gtk::pango::EllipsizeMode::End)
-                    .xalign(0.0) // Default to left alignment
-                    .build();
+                let label = if col == 7 {
+                    // Path column - don't ellipsize to show full path + arguments
+                    Label::builder()
+                        .label(text)
+                        .xalign(0.0) // Left alignment
+                        .build()
+                } else {
+                    // Other columns - ellipsize to fit
+                    Label::builder()
+                        .label(text)
+                        .ellipsize(gtk::pango::EllipsizeMode::End)
+                        .xalign(0.0) // Default to left alignment
+                        .build()
+                };
 
                 // Enhanced styling with column-specific classes and alignment
                 match col {
@@ -690,13 +740,28 @@ impl NetworkMonitorWindow {
                 // Add click gesture for row selection
                 let gesture = gtk::GestureClick::new();
                 let selected_row = self.selected_row.clone();
+                let row_widgets_ref = self.row_widgets.clone();
                 let row_num = row;
 
                 gesture.connect_pressed(move |_, _, _, _| {
-                    // Update selected row
+                    // Update selected row and apply visual styling
                     {
                         let mut selected = selected_row.borrow_mut();
                         *selected = Some(row_num);
+                    }
+
+                    // Update visual styling for all rows
+                    let widgets = row_widgets_ref.borrow();
+                    for (idx, widget) in widgets.iter().enumerate() {
+                        // Calculate which row this widget belongs to
+                        // Each row has exactly 8 widgets (columns)
+                        let widget_row = idx / 8;
+                        if widget_row == (row_num - 1) {
+                            // row_num starts from 1, widget_row starts from 0
+                            widget.add_css_class("row-selected");
+                        } else {
+                            widget.remove_css_class("row-selected");
+                        }
                     }
                 });
 
@@ -859,7 +924,7 @@ impl NetworkMonitorWindow {
             .transient_for(parent)
             .modal(true)
             .application_name("Network Monitor")
-            .application_icon("network-wired-symbolic")
+            .application_icon("network-monitor")
             .version(env!("CARGO_PKG_VERSION"))
             .developer_name("Network Monitor Team")
             .copyright("© 2024 Network Monitor")
@@ -936,65 +1001,130 @@ impl NetworkMonitorWindow {
         content_grid: &Grid,
         column_widths: &Rc<RefCell<Vec<i32>>>,
     ) {
-        // Get the first row of content to measure column widths
-        let mut max_widths = vec![0; 8];
+        // Get all children from both grids
+        let header_labels = header_grid.observe_children();
+        let content_children = content_grid.observe_children();
 
-        // Only sync if we have content to measure
-        if let Some(first_child) = content_grid.first_child() {
-            let mut current_child = Some(first_child);
-            let mut col = 0;
+        // Start with very conservative defaults to allow smaller windows
+        let mut max_widths = vec![60; 8]; // Even smaller defaults
 
-            while let Some(child) = current_child {
-                if child.downcast_ref::<Label>().is_some() {
-                    // Use a reasonable default width with padding
-                    let width = 120; // Default width for now
-                    if col < max_widths.len() {
-                        max_widths[col] = max_widths[col].max(width);
-                    }
-                    col += 1;
-                }
+        // Define maximum reasonable widths to prevent excessive expansion
+        let max_reasonable_widths = [150, 45, 140, 140, 80, 70, 70, 200];
 
-                current_child = child.next_sibling();
-                if col >= 8 {
-                    break;
+        // Measure header widths first
+        for i in 0..header_labels.n_items().min(8) {
+            let idx = i as usize;
+            if let Some(header_child) = header_labels.item(i) {
+                if let Some(header_label) = header_child.downcast_ref::<Label>() {
+                    // Use text width estimation as fallback
+                    let header_text = header_label.text();
+                    let header_width = estimate_text_width(&header_text) + 16; // Reduced padding
+                    max_widths[idx] = max_widths[idx].max(header_width);
                 }
             }
         }
 
-        // Apply minimum widths with reasonable constraints
-        let min_widths = [120, 40, 120, 120, 50, 60, 60, 150];
-        let max_widths_limit = [300, 60, 200, 200, 80, 80, 80, 400];
-        for i in 0..8 {
-            max_widths[i] = max_widths[i].max(min_widths[i]).min(max_widths_limit[i]);
+        // Measure content column widths by examining all content labels
+        // Content grid directly contains labels, organized by row then column
+        let total_content_items = content_children.n_items();
+        let num_columns = 8;
+
+        for item_idx in 0..total_content_items {
+            if let Some(content_child) = content_children.item(item_idx) {
+                if let Some(content_label) = content_child.downcast_ref::<Label>() {
+                    let col_idx = (item_idx % num_columns) as usize;
+                    let content_text = content_label.text();
+                    let content_width = estimate_text_width(&content_text) + 16; // Reduced padding
+                    max_widths[col_idx] = max_widths[col_idx].max(content_width);
+                }
+            }
         }
 
-        // Only update if widths actually changed to avoid unnecessary layout passes
-        let current_widths = column_widths.borrow();
-        let widths_changed = current_widths.len() != max_widths.len()
-            || current_widths
-                .iter()
-                .zip(max_widths.iter())
-                .any(|(curr, new)| curr != new);
-        drop(current_widths);
+        // Apply maximum reasonable width constraints
+        for (idx, width) in max_widths.iter_mut().enumerate() {
+            if idx < max_reasonable_widths.len() {
+                *width = (*width).min(max_reasonable_widths[idx]);
+            }
+        }
 
-        if widths_changed {
-            // Update header column widths more gently
-            let header_labels = header_grid.observe_children();
-            for i in 0..header_labels.n_items().min(8) {
-                let idx = i as usize;
-                if let Some(child) = header_labels.item(i) {
-                    if let Some(label) = child.downcast_ref::<Label>() {
-                        // Only set width request if it's different
-                        if label.width_request() != max_widths[idx] {
-                            label.set_width_request(max_widths[idx]);
+        // Apply measured widths to header labels
+        for i in 0..header_labels.n_items().min(8) {
+            let idx = i as usize;
+            let target_width = max_widths[idx];
+
+            if let Some(header_child) = header_labels.item(i) {
+                if let Some(header_label) = header_child.downcast_ref::<Label>() {
+                    header_label.set_width_request(target_width);
+
+                    // Apply appropriate CSS class for each column
+                    match idx {
+                        0 => {
+                            header_label.add_css_class("column-process");
+                            header_label.remove_css_class("column-protocol");
+                            header_label.remove_css_class("column-address");
+                            header_label.remove_css_class("column-status");
+                            header_label.remove_css_class("column-rate");
+                            header_label.remove_css_class("column-path");
                         }
+                        1 => {
+                            header_label.remove_css_class("column-process");
+                            header_label.add_css_class("column-protocol");
+                            header_label.remove_css_class("column-address");
+                            header_label.remove_css_class("column-status");
+                            header_label.remove_css_class("column-rate");
+                            header_label.remove_css_class("column-path");
+                        }
+                        2 | 3 => {
+                            header_label.remove_css_class("column-process");
+                            header_label.remove_css_class("column-protocol");
+                            header_label.add_css_class("column-address");
+                            header_label.remove_css_class("column-status");
+                            header_label.remove_css_class("column-rate");
+                            header_label.remove_css_class("column-path");
+                        }
+                        4 => {
+                            header_label.remove_css_class("column-process");
+                            header_label.remove_css_class("column-protocol");
+                            header_label.remove_css_class("column-address");
+                            header_label.add_css_class("column-status");
+                            header_label.remove_css_class("column-rate");
+                            header_label.remove_css_class("column-path");
+                        }
+                        5 | 6 => {
+                            header_label.remove_css_class("column-process");
+                            header_label.remove_css_class("column-protocol");
+                            header_label.remove_css_class("column-address");
+                            header_label.remove_css_class("column-status");
+                            header_label.add_css_class("column-rate");
+                            header_label.remove_css_class("column-path");
+                        }
+                        7 => {
+                            header_label.remove_css_class("column-process");
+                            header_label.remove_css_class("column-protocol");
+                            header_label.remove_css_class("column-address");
+                            header_label.remove_css_class("column-status");
+                            header_label.remove_css_class("column-rate");
+                            header_label.add_css_class("column-path");
+                        }
+                        _ => {}
                     }
                 }
             }
-
-            // Store widths for future reference
-            *column_widths.borrow_mut() = max_widths;
         }
+
+        // Apply measured widths to content labels
+        for item_idx in 0..total_content_items {
+            if let Some(content_child) = content_children.item(item_idx) {
+                if let Some(content_label) = content_child.downcast_ref::<Label>() {
+                    let col_idx = (item_idx % num_columns) as usize;
+                    let target_width = max_widths[col_idx];
+                    content_label.set_width_request(target_width);
+                }
+            }
+        }
+
+        // Store the measured widths
+        *column_widths.borrow_mut() = max_widths;
     }
 
     fn setup_close_handler(self: &Rc<Self>) {
@@ -1022,4 +1152,13 @@ impl NetworkMonitorWindow {
             glib::ControlFlow::Continue
         });
     }
+}
+
+/// Helper function to estimate text width for column sizing
+fn estimate_text_width(text: &str) -> i32 {
+    // More conservative estimation: average character width ~ 7 pixels
+    // This is a simple approximation - GTK will handle actual layout
+    let char_count = text.chars().count();
+    // Cap at reasonable minimum to prevent too narrow columns
+    (char_count * 7).max(40) as i32
 }

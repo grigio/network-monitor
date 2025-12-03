@@ -6,7 +6,7 @@ mod error_tests {
     fn test_error_creation() {
         let io_error = std::io::Error::new(std::io::ErrorKind::NotFound, "test error");
         let network_error = NetworkMonitorError::from(io_error);
-        
+
         match network_error {
             NetworkMonitorError::ProcIo(_) => assert!(true),
             _ => assert!(false, "Expected ProcIo error"),
@@ -36,14 +36,14 @@ mod error_tests {
         fn returns_result() -> Result<String> {
             Ok("test".to_string())
         }
-        
+
         assert!(returns_result().is_ok());
     }
 
     #[test]
     fn test_error_context_macro() {
         let result: Result<String> = Err(NetworkMonitorError::ParseError("test error".to_string()));
-        
+
         // This would normally use the error_context macro
         match result {
             Err(NetworkMonitorError::ParseError(msg)) => {

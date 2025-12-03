@@ -152,7 +152,8 @@ impl AddressResolver {
     /// Get current resolve hosts setting
     #[allow(dead_code)]
     pub fn get_resolve_hosts(&self) -> bool {
-        self.resolve_hosts.lock()
+        self.resolve_hosts
+            .lock()
             .map(|guard| *guard)
             .unwrap_or(false) // Default to false if mutex is poisoned
     }
