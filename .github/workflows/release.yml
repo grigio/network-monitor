@@ -14,6 +14,28 @@ jobs:
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
         
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get the previous tag
+          PREVIOUS_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          
+          if [ -n "$PREVIOUS_TAG" ]; then
+            echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+            echo "## Changes since $PREVIOUS_TAG" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            git log --pretty=format:"- %s" $PREVIOUS_TAG..HEAD >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          else
+            echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+            echo "## Initial Release" >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "First release of Network Monitor with GTK4 and TUI support." >> $GITHUB_OUTPUT
+            echo "" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+          fi
+          
       - name: Create Release
         id: create_release
         uses: softprops/action-gh-release@v1
@@ -22,11 +44,7 @@ jobs:
         with:
           tag_name: ${{ github.ref }}
           name: Network Monitor v${{ steps.version.outputs.VERSION }}
-          body: |
-            Changes in this release:
-            - Dynamic version from Cargo.toml in about dialog
-            - Updated branding and website URL
-            - Cross-platform binaries for Linux x86-64 and ARM64
+          body: ${{ steps.changelog.outputs.CHANGELOG }}
           draft: false
           prerelease: false
 

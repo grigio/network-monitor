@@ -1,6 +1,6 @@
 [package]
 name = "network-monitor"
-version = "0.3.6"
+version = "0.3.7"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Luigi Maselli <grigio.org@gmail.com>"]
