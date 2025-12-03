@@ -502,7 +502,6 @@ impl NetworkMonitorWindow {
 
         menu.append_submenu(Some("Theme"), &theme_submenu);
         menu.append(Some("About"), Some("app.about"));
-        menu.append(Some("Quit"), Some("app.quit"));
         menu
     }
 

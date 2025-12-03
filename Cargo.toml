@@ -1,10 +1,11 @@
 [package]
 name = "network-monitor"
-version = "0.3.3"
+version = "0.3.4"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Luigi Maselli <grigio.org@gmail.com>"]
 description = "A network monitoring application built with Rust and GTK4"
+default-run = "network-monitor"
 
 [dependencies]
 gtk4 = { version = "0.10", features = ["v4_14"] }
@@ -22,12 +23,12 @@ crossterm = "0.28"
 tui = { package = "ratatui", version = "0.29" }
 
 [[bin]]
-name = "network-monitor"
-path = "src/main.rs"
-
-[[bin]]
 name = "nmt"
 path = "src/tui_main.rs"
+
+[[bin]]
+name = "network-monitor"
+path = "src/main.rs"
 
 [package.metadata.deb]
 assets = [
