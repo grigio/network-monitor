@@ -5,6 +5,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 // Import modules
+mod error;
+mod error_tests;
 mod models;
 mod services;
 mod ui;

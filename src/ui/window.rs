@@ -524,13 +524,26 @@ impl NetworkMonitorWindow {
         }
 
         // Get connections
-        let connections = self.network_service.get_connections();
+        let connections = match self.network_service.get_connections() {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("Failed to get connections: {}", e);
+                return;
+            }
+        };
 
         // Update I/O data for rate calculations
         let prev_io = self.prev_io.lock().unwrap().clone();
-        let (updated_connections, current_io) = self
+        let (updated_connections, current_io) = match self
             .network_service
-            .update_connection_rates(connections, &prev_io);
+            .update_connection_rates(connections, &prev_io)
+        {
+            Ok(result) => result,
+            Err(e) => {
+                eprintln!("Failed to update connection rates: {}", e);
+                return;
+            }
+        };
 
         // Calculate total sent/received data
         let mut total_sent = 0u64;

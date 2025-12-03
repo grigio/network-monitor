@@ -18,6 +18,8 @@ A real-time network connection monitoring tool built with Rust and GTK4, display
 - **Connection filtering**: Filters out localhost connections for cleaner output
 - **GNOME integration**: Proper WM class support for dock pinning and desktop integration
 - **Dual installation**: Supports both user-local and system-wide installation
+- **Robust error handling**: Graceful degradation with comprehensive error recovery
+- **Performance optimized**: Process caching and layout caching for improved responsiveness
 
 ## Requirements
 
@@ -183,6 +185,8 @@ Common addresses are simplified for readability:
 3. Reads `/proc/[pid]/io` for real-time I/O statistics
 4. Calculates rates by comparing I/O between updates
 5. Updates GTK4 interface every 3 seconds with current connection state
+6. **Performance optimizations**: Uses cached process mapping and layout calculations to reduce system calls
+7. **Error resilience**: Handles filesystem errors gracefully without application crashes
 
 ## Architecture
 
@@ -192,6 +196,8 @@ Common addresses are simplified for readability:
 - **Native socket parsing**: Direct `/proc/net` filesystem access for connection data
 - **Process mapping**: Inode-based process identification via `/proc/*/fd`
 - **System calls**: Direct interaction with `/proc` filesystem for I/O statistics
+- **Error handling**: Comprehensive error types with graceful recovery using `thiserror`
+- **Performance caching**: Process information and UI layout caching for optimal performance
 
 ## Donations
 

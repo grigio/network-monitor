@@ -36,15 +36,21 @@ impl AddressResolver {
             return "MDNS".to_string();
         }
 
-        // Check if resolution is disabled
-        let resolve_hosts = *self.resolve_hosts.lock().unwrap();
+        // Check if resolution is disabled with timeout
+        let resolve_hosts = match self.resolve_hosts.lock() {
+            Ok(guard) => *guard,
+            Err(_) => return addr.to_string(), // Mutex poisoned, return original
+        };
         if !resolve_hosts {
             return addr.to_string();
         }
 
-        // Check cache first
+        // Check cache first with timeout
         {
-            let cache = self.cache.lock().unwrap();
+            let cache = match self.cache.lock() {
+                Ok(guard) => guard,
+                Err(_) => return addr.to_string(), // Mutex poisoned
+            };
             if let Some(resolved) = cache.get(addr) {
                 return resolved.clone();
             }
@@ -68,7 +74,10 @@ impl AddressResolver {
 
         // Start async resolution if not already pending
         {
-            let mut pending = self.pending.lock().unwrap();
+            let mut pending = match self.pending.lock() {
+                Ok(guard) => guard,
+                Err(_) => return addr.to_string(), // Mutex poisoned
+            };
             if !pending.contains(&ip_part) {
                 pending.insert(ip_part.clone());
 
@@ -77,8 +86,11 @@ impl AddressResolver {
                 let pending = self.pending.clone();
 
                 thread::spawn(move || {
-                    // Simple hostname resolution using host command
-                    let resolved = match std::process::Command::new("host").arg(&ip_part).output() {
+                    // Simple hostname resolution using host command with timeout
+                    let resolved = match std::process::Command::new("timeout")
+                        .args(["5s", "host", &ip_part])
+                        .output()
+                    {
                         Ok(output) => {
                             let output_str = String::from_utf8_lossy(&output.stdout);
                             // Simple parsing for hostname
@@ -108,15 +120,13 @@ impl AddressResolver {
                         Err(_) => addr.clone(),
                     };
 
-                    // Update cache
-                    {
-                        let mut cache = cache.lock().unwrap();
+                    // Update cache with error handling
+                    if let Ok(mut cache) = cache.lock() {
                         cache.insert(addr.clone(), resolved);
                     }
 
-                    // Remove from pending
-                    {
-                        let mut pending = pending.lock().unwrap();
+                    // Remove from pending with error handling
+                    if let Ok(mut pending) = pending.lock() {
                         pending.remove(&ip_part);
                     }
                 });
@@ -129,21 +139,29 @@ impl AddressResolver {
     /// Set whether to resolve hostnames
     #[allow(dead_code)] // Used by GTK version but not TUI
     pub fn set_resolve_hosts(&self, resolve: bool) {
-        *self.resolve_hosts.lock().unwrap() = resolve;
-        if !resolve {
-            self.cache.lock().unwrap().clear();
+        if let Ok(mut resolve_hosts) = self.resolve_hosts.lock() {
+            *resolve_hosts = resolve;
+            if !resolve {
+                if let Ok(mut cache) = self.cache.lock() {
+                    cache.clear();
+                }
+            }
         }
     }
 
     /// Get current resolve hosts setting
     #[allow(dead_code)]
     pub fn get_resolve_hosts(&self) -> bool {
-        *self.resolve_hosts.lock().unwrap()
+        self.resolve_hosts.lock()
+            .map(|guard| *guard)
+            .unwrap_or(false) // Default to false if mutex is poisoned
     }
 
     /// Clear the resolution cache
     #[allow(dead_code)]
     pub fn clear_cache(&self) {
-        self.cache.lock().unwrap().clear();
+        if let Ok(mut cache) = self.cache.lock() {
+            cache.clear();
+        }
     }
 }

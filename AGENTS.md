@@ -18,9 +18,12 @@ src/
 ├── ui/              # GTK4 UI components and widgets
 ├── models/          # Data structures and state (shared)
 ├── services/        # Business logic and system calls (shared)
-│   ├── network.rs   # Native socket parsing and process mapping
-│   └── resolver.rs # Address resolution utilities
-└── utils/           # Helper functions (shared)
+│   ├── network.rs       # Native socket parsing and process mapping
+│   ├── process_cache.rs # Process information caching for performance
+│   └── resolver.rs     # Address resolution utilities
+├── utils/           # Helper functions (shared)
+├── error.rs         # Custom error types with thiserror
+└── error_tests.rs    # Error handling tests
 ```
 
 ## Essential Dependencies
@@ -82,6 +85,9 @@ cargo clippy -- -D warnings
 
 # Run tests
 cargo test
+
+# Run tests with error handling coverage
+cargo test error_tests
 ```
 
 ## Critical Pitfalls
@@ -90,10 +96,12 @@ cargo test
 3. **Async Integration**: Properly bridge Tokio and GTK main loops
 4. **Resource Management**: Clean up system resources in `Drop` implementations
 5. **Process Mapping**: Use inode-based mapping for accurate socket-to-process identification
-6. **File System Access**: Handle `/proc` filesystem access errors gracefully
+6. **File System Access**: Handle `/proc` filesystem access errors gracefully with proper Result types
 7. **WM Class Matching**: Ensure `StartupWMClass` in desktop file matches `window.set_class_name()` for GNOME dock pinning
 8. **Terminal Compatibility**: TUI requires proper terminal environment - avoid running in limited IDE terminals
 9. **Code Sharing**: Maintain shared modules (models, services, utils) to avoid duplication between GTK and TUI versions
+10. **Error Handling**: Use custom `NetworkMonitorError` types instead of `.unwrap()` calls for robust error recovery
+11. **Performance**: Utilize process caching and layout caching to reduce system calls and improve responsiveness
 
 ## Implementation Details
 

@@ -11,6 +11,7 @@
 # - Complete removal of both GTK4 and TUI binaries, desktop files, and icons
 # - Cache updates for both system and user directories
 # - Safe removal with proper error handling
+# - Removes optimized application with enhanced error handling and performance
 
 set -e
 

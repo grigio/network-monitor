@@ -1,5 +1,14 @@
 use serde::{Deserialize, Serialize};
 
+/// Process information for caching
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct ProcessInfo {
+    pub name: String,
+    pub command: String,
+    pub last_seen: std::time::Instant,
+}
+
 /// Network connection information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Connection {

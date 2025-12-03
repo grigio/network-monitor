@@ -13,6 +13,7 @@
 # - Desktop file with correct Exec path
 # - Icon installation and cache updates
 # - Dual installation mode support
+# - Built with robust error handling and performance optimizations
 
 set -e
 
