@@ -56,15 +56,15 @@ impl NetworkMonitorWindow {
         let header_grid = Grid::builder()
             .column_spacing(0)
             .row_spacing(0)
-            .halign(Align::Fill)
-            .hexpand(false) // Don't let grid force expansion
+            .halign(Align::Start) // Align to start, let it expand if needed
+            .hexpand(true) // Allow horizontal expansion to match content width
             .build();
 
         let content_grid = Grid::builder()
             .column_spacing(0)
             .row_spacing(0)
-            .halign(Align::Fill)
-            .hexpand(false) // Don't let grid force expansion
+            .halign(Align::Start) // Align to start, let it expand if needed
+            .hexpand(true) // Allow horizontal expansion to match content width
             .build();
 
         let resolve_toggle = gtk::CheckButton::builder()
@@ -153,48 +153,41 @@ impl NetworkMonitorWindow {
                     // Process(ID) - left aligned with specific width
                     label.set_halign(Align::Start);
                     label.set_xalign(0.0);
-                    label.set_hexpand(true);
                     label.add_css_class("column-process");
                 }
                 1 => {
                     // Protocol - left aligned with specific width
                     label.set_halign(Align::Start);
                     label.set_xalign(0.0);
-                    label.set_hexpand(true);
                     label.add_css_class("column-protocol");
                 }
                 2 | 3 => {
                     // Source/Destination - left aligned with specific width
                     label.set_halign(Align::Start);
                     label.set_xalign(0.0);
-                    label.set_hexpand(true);
                     label.add_css_class("column-address");
                 }
                 4 => {
                     // Status - left aligned with specific width
                     label.set_halign(Align::Start);
                     label.set_xalign(0.0);
-                    label.set_hexpand(true);
                     label.add_css_class("column-status");
                 }
                 5 | 6 => {
                     // TX/RX - left aligned with specific width
                     label.set_halign(Align::Start);
                     label.set_xalign(0.0);
-                    label.set_hexpand(true);
                     label.add_css_class("column-rate");
                 }
                 7 => {
                     // Path - left aligned with specific width
                     label.set_halign(Align::Start);
                     label.set_xalign(0.0);
-                    label.set_hexpand(true);
                     label.add_css_class("column-path");
                 }
                 _ => {
                     label.set_halign(Align::Start);
                     label.set_xalign(0.0);
-                    label.set_hexpand(true);
                 }
             }
 
@@ -661,7 +654,6 @@ impl NetworkMonitorWindow {
                         label.add_css_class("column-process");
                         label.set_halign(Align::Start);
                         label.set_xalign(0.0); // Left align
-                        label.set_hexpand(true);
                     }
                     1 => {
                         // Protocol
@@ -669,7 +661,6 @@ impl NetworkMonitorWindow {
                         label.add_css_class("column-protocol");
                         label.set_halign(Align::Start);
                         label.set_xalign(0.0); // Left align
-                        label.set_hexpand(true);
                         match conn.protocol.as_str() {
                             "tcp" => label.add_css_class("success"),
                             "udp" => label.add_css_class("warning"),
@@ -682,7 +673,6 @@ impl NetworkMonitorWindow {
                         label.add_css_class("column-address");
                         label.set_halign(Align::Start);
                         label.set_xalign(0.0); // Left align
-                        label.set_hexpand(true);
                         if col == 3 && (conn.rx_rate > 0 || conn.tx_rate > 0) {
                             label.add_css_class("accent");
                         }
@@ -693,7 +683,6 @@ impl NetworkMonitorWindow {
                         label.add_css_class("column-status");
                         label.set_halign(Align::Start);
                         label.set_xalign(0.0); // Left align
-                        label.set_hexpand(true);
                         match conn.state.as_str() {
                             "ESTABLISHED" => label.add_css_class("success"),
                             "LISTEN" => label.add_css_class("warning"),
@@ -708,7 +697,6 @@ impl NetworkMonitorWindow {
                         label.add_css_class("error");
                         label.set_halign(Align::End);
                         label.set_xalign(1.0); // Right align
-                        label.set_hexpand(true);
                     }
                     6 => {
                         // RX Rate
@@ -717,7 +705,6 @@ impl NetworkMonitorWindow {
                         label.add_css_class("accent");
                         label.set_halign(Align::End);
                         label.set_xalign(1.0); // Right align
-                        label.set_hexpand(true);
                     }
                     7 => {
                         // Path
@@ -727,13 +714,11 @@ impl NetworkMonitorWindow {
                         label.add_css_class("column-path");
                         label.set_halign(Align::Start);
                         label.set_xalign(0.0); // Left align
-                        label.set_hexpand(true);
                     }
                     _ => {
                         label.add_css_class("table-cell");
                         label.set_halign(Align::Start);
                         label.set_xalign(0.0); // Left align
-                        label.set_hexpand(true);
                     }
                 }
 
@@ -1009,7 +994,8 @@ impl NetworkMonitorWindow {
         let mut max_widths = vec![60; 8]; // Even smaller defaults
 
         // Define maximum reasonable widths to prevent excessive expansion
-        let max_reasonable_widths = [150, 45, 140, 140, 80, 70, 70, 200];
+        // Increased Path (index 7) width to allow for long paths and horizontal scrolling
+        let max_reasonable_widths = [150, 45, 140, 140, 80, 70, 70, 500];
 
         // Measure header widths first
         for i in 0..header_labels.n_items().min(8) {
