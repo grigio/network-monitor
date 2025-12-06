@@ -6,9 +6,6 @@
 - **Libadwaita**: GNOME-style UI components with v1_5 features
 - **Ratatui**: Terminal User Interface framework (beta version for latest features)
 - **Crossterm**: Cross-platform terminal handling with event streaming
-- **GLib/GIO**: GObject system and I/O operations
-- **Serde**: Serialization framework with JSON support
-- **ThisError**: Error handling with context
 - **Native socket parsing**: Direct `/proc/net` filesystem access
 - **Inode-based process mapping**: Socket-to-process identification
 
@@ -20,40 +17,10 @@ src/
 ├── ui/              # GTK4 UI components and widgets
 ├── models/          # Data structures and state (shared)
 ├── services/        # Business logic and system calls (shared)
-│   ├── network.rs       # Native socket parsing and process mapping
-│   ├── process_cache.rs # Process information caching for performance
-│   ├── resolver.rs     # Address resolution utilities
-│   └── tests.rs        # Comprehensive unit tests for core logic
 ├── utils/           # Helper functions (shared)
-│   ├── formatter.rs    # Consolidated formatting utilities for GTK/TUI
-│   ├── parsing.rs      # Hex parsing and common operations with error context
-│   ├── recovery.rs     # Graceful degradation and circuit breaker patterns
-│   └── mod.rs         # Module exports and shared utilities
 ├── error.rs         # Custom error types with thiserror
 └── error_tests.rs    # Error handling tests
 ```
-
-## Essential Dependencies
-
-See `Cargo.toml` for exact dependency versions and features.
-
-### Core Dependencies
-- **gtk4**: Modern GTK4 bindings with v4_14 features
-- **libadwaita**: GNOME-style UI components with v1_5 features  
-- **glib**: GLib bindings for GObject system
-- **gio**: GIO bindings for I/O operations
-- **serde**: Serialization framework with derive support
-- **serde_json**: JSON serialization support
-- **thiserror**: Error handling with context
-- **crossterm**: Terminal handling with event streaming
-- **ratatui**: Terminal User Interface framework with crossterm backend
-
-### Dependency Status
-- All dependencies are current and actively maintained
-- Using beta version of ratatui for latest features
-- Security audit passed with no critical vulnerabilities
-- License compliance verified with cargo-deny
-- Duplicate dependency warnings present (itertools 0.13.0/0.14.0) but non-critical
 
 ## Common Patterns
 
@@ -132,51 +99,25 @@ glib::spawn_future_local(async move {
 
 ## Development Commands
 ```bash
-# Development build (GTK4)
-cargo run
+# Build and run
+cargo run                    # GTK4 version
+cargo run --bin nmt          # TUI version
+cargo build --release        # Release build
 
-# Development build (TUI)
-cargo run --bin nmt
+# Code quality
+cargo fmt                    # Format code
+cargo clippy -- -D warnings  # Lint with strict warnings
+cargo test                   # Run tests
 
-# Release build (both binaries)
-cargo build --release
+# Dependency management
+cargo update                 # Update dependencies
+cargo outdated               # Check for outdated dependencies
+cargo audit                  # Security audit
+cargo deny check             # License and dependency checks
 
-# Build specific binary
-cargo build --bin network-monitor
-cargo build --bin nmt
-
-# Local installation (no sudo required)
-./scripts/install.sh
-
-# System-wide installation (requires sudo)
-sudo ./scripts/install.sh
-
-# Local uninstallation
-./scripts/uninstall.sh
-
-# System-wide uninstallation (requires sudo)
-sudo ./scripts/uninstall.sh
-
-# Format code
-cargo fmt
-
-# Run lints
-cargo clippy -- -D warnings
-
-# Run tests
-cargo test
-
-# Run tests with error handling coverage
-cargo test error_tests
-
-# Run security audit (requires cargo-audit)
-cargo audit
-
-# Run dependency checks
-cargo deny check
-
-# Run clippy lints
-cargo clippy -- -D warnings
+# Installation
+./scripts/install.sh         # Local install
+sudo ./scripts/install.sh    # System-wide install
 ```
 
 ## Critical Pitfalls
@@ -270,3 +211,4 @@ The application uses native Rust libraries to monitor network connections:
 - Implement efficient inode-to-process mapping to avoid scanning entire `/proc` tree unnecessarily
 - For TUI: Use terminal escape sequences efficiently and limit refresh rate to avoid flickering
 - Share core logic between GTK and TUI versions to maintain consistency and reduce maintenance
+- Keep dependencies updated with `cargo update` and check outdated packages with `cargo outdated`
