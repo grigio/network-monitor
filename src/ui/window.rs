@@ -38,7 +38,7 @@ impl NetworkMonitorWindow {
         let window = ApplicationWindow::builder()
             .application(app)
             .title("Network Monitor")
-            .default_width(480) // 40% reduction from 800
+            .default_width(800) // Set to a standard width
             .default_height(600)
             .resizable(true)
             .build();
@@ -56,15 +56,15 @@ impl NetworkMonitorWindow {
         let header_grid = Grid::builder()
             .column_spacing(0)
             .row_spacing(0)
-            .halign(Align::Start) // Align to start, let it expand if needed
-            .hexpand(true) // Allow horizontal expansion to match content width
+            .halign(Align::Start) // Align to start
+            .hexpand(false) // Let the natural size be determined by children's width requests
             .build();
 
         let content_grid = Grid::builder()
             .column_spacing(0)
             .row_spacing(0)
-            .halign(Align::Start) // Align to start, let it expand if needed
-            .hexpand(true) // Allow horizontal expansion to match content width
+            .halign(Align::Start) // Align to start
+            .hexpand(false) // Let the natural size be determined by children's width requests
             .build();
 
         let resolve_toggle = gtk::CheckButton::builder()
@@ -287,7 +287,6 @@ impl NetworkMonitorWindow {
         // Wrap header grid in a container that allows horizontal overflow
         let header_wrapper = GtkBox::builder()
             .orientation(Orientation::Horizontal)
-            .hexpand(true)
             .build();
         header_wrapper.append(&self.header_grid);
         header_container.append(&header_wrapper);
@@ -497,7 +496,7 @@ impl NetworkMonitorWindow {
     }
 
     fn setup_actions(&self) {
-        // About action for the window
+        // About action for the window (win.* action)
         let action_about = ActionEntry::builder("about")
             .activate(move |window: &ApplicationWindow, _, _| {
                 NetworkMonitorWindow::show_about_dialog(window);
@@ -505,36 +504,62 @@ impl NetworkMonitorWindow {
             .build();
         self.window.add_action_entries([action_about]);
 
-        // Set keyboard accelerator for window-specific about action
         if let Some(app) = self.window.application() {
-            app.set_accels_for_action("win.about", &["<Shift>F1"]);
+            // Theme actions (app.* actions)
+            let style_manager = adw::StyleManager::default();
+
+            let style_manager_clone = style_manager.clone();
+            let action_light = ActionEntry::builder("theme-light")
+                .activate(move |_, _, _| {
+                    style_manager_clone.set_color_scheme(adw::ColorScheme::PreferLight);
+                })
+                .build();
+
+            let style_manager_clone = style_manager.clone();
+            let action_dark = ActionEntry::builder("theme-dark")
+                .activate(move |_, _, _| {
+                    style_manager_clone.set_color_scheme(adw::ColorScheme::PreferDark);
+                })
+                .build();
+
+            let style_manager_clone = style_manager.clone();
+            let action_auto = ActionEntry::builder("theme-auto")
+                .activate(move |_, _, _| {
+                    style_manager_clone.set_color_scheme(adw::ColorScheme::Default);
+                })
+                .build();
+
+            app.add_action_entries([action_light, action_dark, action_auto]);
+
+            // Set keyboard accelerators
+            app.set_accels_for_action("win.about", &["F1"]);
+            app.set_accels_for_action("app.theme-light", &["<Ctrl>L"]);
+            app.set_accels_for_action("app.theme-dark", &["<Ctrl>D"]);
+            app.set_accels_for_action("app.theme-auto", &["<Ctrl>M"]);
         }
     }
 
     fn create_menu_model(&self) -> Menu {
         let menu = Menu::new();
 
-        // Theme selection section with better organization
+        // Theme selection section
         let theme_section = Menu::new();
-        theme_section.append(Some("Light Theme"), Some("app.theme_light"));
-        theme_section.append(Some("Dark Theme"), Some("app.theme_dark"));
-        theme_section.append(Some("Follow System"), Some("app.theme_auto"));
+        theme_section.append(Some("Light"), Some("app.theme-light"));
+        theme_section.append(Some("Dark"), Some("app.theme-dark"));
+        theme_section.append(Some("Auto"), Some("app.theme-auto"));
 
-        menu.append_section(Some("Appearance"), &theme_section);
-
-        // Add separator
-        menu.append_section(None, &Menu::new());
+        menu.append_section(Some("Theme"), &theme_section);
 
         // About section
         let about_section = Menu::new();
-        about_section.append(Some("About Network Monitor"), Some("win.about"));
+        about_section.append(Some("About"), Some("win.about"));
 
         menu.append_section(Some("Help"), &about_section);
         menu
     }
 
     pub fn update_connections(self: &Rc<Self>) {
-        // Clean up any active popovers before clearing widgets
+        // Clean up any active popovers before updating widgets
         {
             let mut popovers = self.active_popovers.borrow_mut();
             for popover in popovers.drain(..) {
@@ -542,16 +567,15 @@ impl NetworkMonitorWindow {
             }
         }
 
-        // Clear existing grid content (except headers)
+        // Get mutable access to row widgets and clear selection styling
         {
-            let mut row_widgets = self.row_widgets.borrow_mut();
+            let row_widgets = self.row_widgets.borrow_mut();
             for widget in row_widgets.iter() {
-                self.content_grid.remove(widget);
+                widget.remove_css_class("row-selected");
             }
-            row_widgets.clear();
         }
 
-        // Clear selection when table is rebuilt
+        // Clear selection state
         {
             let mut selected = self.selected_row.borrow_mut();
             *selected = None;
@@ -567,7 +591,11 @@ impl NetworkMonitorWindow {
         };
 
         // Update I/O data for rate calculations
-        let prev_io = self.prev_io.lock().unwrap().clone();
+        let prev_io = self
+            .prev_io
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let (updated_connections, current_io) = match self
             .network_service
             .update_connection_rates(connections, &prev_io)
@@ -589,7 +617,7 @@ impl NetworkMonitorWindow {
 
         // Update previous I/O data for next iteration
         {
-            let mut prev_io = self.prev_io.lock().unwrap();
+            let mut prev_io = self.prev_io.lock().unwrap_or_else(|e| e.into_inner());
             *prev_io = current_io;
         }
 
@@ -603,20 +631,24 @@ impl NetworkMonitorWindow {
         let sorted_connections = self.sort_connections(filtered_connections);
 
         let mut active_connections = 0;
+        let num_columns = 8;
         let mut row = 1; // Start from row 1 (row 0 is headers)
 
-        for conn in &sorted_connections {
+        // Get mutable access to row widgets
+        let mut row_widgets = self.row_widgets.borrow_mut();
+        let existing_widget_count = row_widgets.len();
+
+        for (conn_index, conn) in sorted_connections.iter().enumerate() {
+            // Calculate the starting index for this row's widgets in the row_widgets vector
+            let start_widget_index = conn_index * num_columns;
+
             // Format display values
             let prog_pid = conn.get_process_display();
-
             let local_resolved = self.resolver.resolve_address(&conn.local);
             let remote_resolved = self.resolver.resolve_address(&conn.remote);
-
             let process_path = conn.command.clone();
 
-            let mut row_widgets = self.row_widgets.borrow_mut();
-
-            // Process each column separately to avoid lifetime issues
+            // Process each column separately
             let columns = [
                 prog_pid,
                 conn.protocol.clone(),
@@ -629,60 +661,194 @@ impl NetworkMonitorWindow {
             ];
 
             for (col, text) in columns.iter().enumerate() {
-                let text_for_closures = text.clone(); // Clone for closures
-                let label = if col == 7 {
-                    // Path column - don't ellipsize to show full path + arguments
-                    Label::builder()
-                        .label(text)
-                        .xalign(0.0) // Left alignment
-                        .build()
-                } else {
-                    // Other columns - ellipsize to fit
-                    Label::builder()
-                        .label(text)
-                        .ellipsize(gtk::pango::EllipsizeMode::End)
-                        .xalign(0.0) // Default to left alignment
-                        .build()
-                };
+                let widget_index = start_widget_index + col;
+                let label: &Label;
 
-                // Enhanced styling with column-specific classes and alignment
-                match col {
-                    0 => {
-                        // Process(ID)
-                        label.add_css_class("caption");
-                        label.add_css_class("table-cell");
-                        label.add_css_class("column-process");
-                        label.set_halign(Align::Start);
-                        label.set_xalign(0.0); // Left align
+                if widget_index < existing_widget_count {
+                    // Reuse existing widget: only update text
+                    label = row_widgets[widget_index].downcast_ref::<Label>().unwrap();
+                    label.set_text(text);
+                } else {
+                    // Create new widget if needed (only happens when new connections appear)
+                    let text_for_closures = text.clone();
+
+                    let new_label = if col == 7 {
+                        // Path column - don't ellipsize
+                        Label::builder().label(text).xalign(0.0).build()
+                    } else {
+                        // Other columns - ellipsize
+                        Label::builder()
+                            .label(text)
+                            .ellipsize(gtk::pango::EllipsizeMode::End)
+                            .xalign(0.0)
+                            .build()
+                    };
+
+                    // Apply initial styling and alignment (only once)
+                    match col {
+                        0 => {
+                            new_label.add_css_class("caption");
+                            new_label.add_css_class("column-process");
+                            new_label.set_halign(Align::Start);
+                            new_label.set_xalign(0.0);
+                        }
+                        1 => {
+                            new_label.add_css_class("column-protocol");
+                            new_label.set_halign(Align::Start);
+                            new_label.set_xalign(0.0);
+                        }
+                        2 | 3 => {
+                            new_label.add_css_class("column-address");
+                            new_label.set_halign(Align::Start);
+                            new_label.set_xalign(0.0);
+                        }
+                        4 => {
+                            new_label.add_css_class("column-status");
+                            new_label.set_halign(Align::Start);
+                            new_label.set_xalign(0.0);
+                        }
+                        5 => {
+                            new_label.add_css_class("column-rate");
+                            new_label.set_halign(Align::End);
+                            new_label.set_xalign(1.0);
+                        }
+                        6 => {
+                            new_label.add_css_class("column-rate");
+                            new_label.set_halign(Align::End);
+                            new_label.set_xalign(1.0);
+                        }
+                        7 => {
+                            new_label.add_css_class("caption");
+                            new_label.add_css_class("dim-label");
+                            new_label.add_css_class("column-path");
+                            new_label.set_halign(Align::Start);
+                            new_label.set_xalign(0.0);
+                        }
+                        _ => {
+                            new_label.set_halign(Align::Start);
+                            new_label.set_xalign(0.0);
+                        }
                     }
+                    new_label.add_css_class("table-cell");
+
+                    // Add click gesture for row selection (only once)
+                    let gesture = gtk::GestureClick::new();
+                    let selected_row = self.selected_row.clone();
+                    let row_widgets_ref = self.row_widgets.clone();
+                    let row_num = row; // This row number is constant for the closure
+
+                    gesture.connect_pressed(move |_, _, _, _| {
+                        // Update selected row and apply visual styling
+                        {
+                            let mut selected = selected_row.borrow_mut();
+                            *selected = Some(row_num);
+                        }
+
+                        // Update visual styling for all rows
+                        let widgets = row_widgets_ref.borrow();
+                        for (idx, widget) in widgets.iter().enumerate() {
+                            let widget_row = idx / num_columns;
+                            if widget_row == (row_num - 1) {
+                                widget.add_css_class("row-selected");
+                            } else {
+                                widget.remove_css_class("row-selected");
+                            }
+                        }
+                    });
+                    new_label.add_controller(gesture);
+
+                    // Add right-click gesture for context menu (only once)
+                    let right_click_gesture = gtk::GestureClick::new();
+                    right_click_gesture.set_button(3);
+
+                    let text_for_right_click = text_for_closures.clone(); // Clone for right click closure
+                    let active_popovers = self.active_popovers.clone();
+                    right_click_gesture.connect_pressed(move |gesture, _, x, y| {
+                        let copy_text = text_for_right_click.clone();
+
+                        if let Some(display) = gtk::gdk::Display::default() {
+                            let clipboard = display.clipboard();
+                            clipboard.set_text(&copy_text);
+                        }
+
+                        let menu = PopoverMenu::builder().build();
+                        let menu_model = Menu::new();
+                        menu_model.append(Some("Copied!"), None);
+                        menu.set_menu_model(Some(&menu_model));
+
+                        if let Some(parent) = gesture.widget() {
+                            menu.set_parent(&parent);
+                            let rect = gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
+                            menu.set_pointing_to(Some(&rect));
+
+                            let active_popovers_clone = active_popovers.clone();
+                            let menu_clone = menu.clone();
+                            active_popovers_clone.borrow_mut().push(menu_clone.clone());
+
+                            let menu_for_timeout = menu.clone();
+                            let active_popovers_for_timeout = active_popovers.clone();
+                            glib::timeout_add_seconds_local_once(1, move || {
+                                menu_for_timeout.unparent();
+                                let mut popovers = active_popovers_for_timeout.borrow_mut();
+                                popovers.retain(|p| !p.eq(&menu_for_timeout));
+                            });
+
+                            menu.popup();
+                        }
+                    });
+                    new_label.add_controller(right_click_gesture);
+
+                    // Add keyboard shortcut for Ctrl+C (only once)
+                    let key_controller = gtk::EventControllerKey::new();
+                    let text_for_keyboard = text_for_closures.clone(); // Clone for keyboard closure
+                    key_controller.connect_key_pressed(move |_, key, _, modifier| {
+                        if key == gtk::gdk::Key::c
+                            && modifier == gtk::gdk::ModifierType::CONTROL_MASK
+                        {
+                            if let Some(display) = gtk::gdk::Display::default() {
+                                let clipboard = display.clipboard();
+                                clipboard.set_text(&text_for_keyboard);
+                            }
+                            return glib::Propagation::Stop;
+                        }
+                        glib::Propagation::Proceed
+                    });
+                    new_label.add_controller(key_controller);
+
+                    // Attach to grid and store
+                    self.content_grid
+                        .attach(&new_label, col as i32, row as i32, 1, 1);
+                    row_widgets.push(new_label.clone());
+                    // Get reference from the newly pushed widget in the vector
+                    label = row_widgets.last().unwrap().downcast_ref::<Label>().unwrap();
+                }
+
+                // Update dynamic styling (must be done every update)
+                match col {
                     1 => {
-                        // Protocol
-                        label.add_css_class("table-cell");
-                        label.add_css_class("column-protocol");
-                        label.set_halign(Align::Start);
-                        label.set_xalign(0.0); // Left align
+                        // Protocol color
+                        label.remove_css_class("success");
+                        label.remove_css_class("warning");
+                        label.remove_css_class("dim-label");
                         match conn.protocol.as_str() {
                             "tcp" => label.add_css_class("success"),
                             "udp" => label.add_css_class("warning"),
                             _ => label.add_css_class("dim-label"),
                         }
                     }
-                    2 | 3 => {
-                        // Source/Destination
-                        label.add_css_class("table-cell");
-                        label.add_css_class("column-address");
-                        label.set_halign(Align::Start);
-                        label.set_xalign(0.0); // Left align
-                        if col == 3 && (conn.rx_rate > 0 || conn.tx_rate > 0) {
+                    3 => {
+                        // Destination rate color
+                        label.remove_css_class("accent");
+                        if conn.rx_rate > 0 || conn.tx_rate > 0 {
                             label.add_css_class("accent");
                         }
                     }
                     4 => {
-                        // Status
-                        label.add_css_class("table-cell");
-                        label.add_css_class("column-status");
-                        label.set_halign(Align::Start);
-                        label.set_xalign(0.0); // Left align
+                        // Status color
+                        label.remove_css_class("success");
+                        label.remove_css_class("warning");
+                        label.remove_css_class("error");
+                        label.remove_css_class("dim-label");
                         match conn.state.as_str() {
                             "ESTABLISHED" => label.add_css_class("success"),
                             "LISTEN" => label.add_css_class("warning"),
@@ -691,136 +857,32 @@ impl NetworkMonitorWindow {
                         }
                     }
                     5 => {
-                        // TX Rate
-                        label.add_css_class("table-cell");
-                        label.add_css_class("column-rate");
-                        label.add_css_class("error");
-                        label.set_halign(Align::End);
-                        label.set_xalign(1.0); // Right align
+                        // TX Rate color
+                        label.remove_css_class("error");
+                        label.remove_css_class("dim-label");
+                        if conn.tx_rate > 0 {
+                            label.add_css_class("error");
+                        } else {
+                            label.add_css_class("dim-label");
+                        }
                     }
                     6 => {
-                        // RX Rate
-                        label.add_css_class("table-cell");
-                        label.add_css_class("column-rate");
-                        label.add_css_class("accent");
-                        label.set_halign(Align::End);
-                        label.set_xalign(1.0); // Right align
+                        // RX Rate color
+                        label.remove_css_class("accent");
+                        label.remove_css_class("dim-label");
+                        if conn.rx_rate > 0 {
+                            label.add_css_class("accent");
+                        } else {
+                            label.add_css_class("dim-label");
+                        }
                     }
                     7 => {
-                        // Path
-                        label.add_css_class("caption");
+                        // Path color
+                        label.remove_css_class("dim-label");
                         label.add_css_class("dim-label");
-                        label.add_css_class("table-cell");
-                        label.add_css_class("column-path");
-                        label.set_halign(Align::Start);
-                        label.set_xalign(0.0); // Left align
                     }
-                    _ => {
-                        label.add_css_class("table-cell");
-                        label.set_halign(Align::Start);
-                        label.set_xalign(0.0); // Left align
-                    }
+                    _ => {}
                 }
-
-                // Add click gesture for row selection
-                let gesture = gtk::GestureClick::new();
-                let selected_row = self.selected_row.clone();
-                let row_widgets_ref = self.row_widgets.clone();
-                let row_num = row;
-
-                gesture.connect_pressed(move |_, _, _, _| {
-                    // Update selected row and apply visual styling
-                    {
-                        let mut selected = selected_row.borrow_mut();
-                        *selected = Some(row_num);
-                    }
-
-                    // Update visual styling for all rows
-                    let widgets = row_widgets_ref.borrow();
-                    for (idx, widget) in widgets.iter().enumerate() {
-                        // Calculate which row this widget belongs to
-                        // Each row has exactly 8 widgets (columns)
-                        let widget_row = idx / 8;
-                        if widget_row == (row_num - 1) {
-                            // row_num starts from 1, widget_row starts from 0
-                            widget.add_css_class("row-selected");
-                        } else {
-                            widget.remove_css_class("row-selected");
-                        }
-                    }
-                });
-
-                label.add_controller(gesture);
-
-                // Add right-click gesture for context menu
-                let right_click_gesture = gtk::GestureClick::new();
-                right_click_gesture.set_button(3); // Right mouse button;
-
-                let text_for_right_click = text_for_closures.clone();
-                let active_popovers = self.active_popovers.clone();
-                right_click_gesture.connect_pressed(move |gesture, _, x, y| {
-                    let copy_text = text_for_right_click.clone();
-
-                    // Copy immediately on right-click
-                    if let Some(display) = gtk::gdk::Display::default() {
-                        let clipboard = display.clipboard();
-                        clipboard.set_text(&copy_text);
-                    }
-
-                    // Show simple notification menu
-                    let menu = PopoverMenu::builder().build();
-
-                    // Create menu model
-                    let menu_model = Menu::new();
-                    menu_model.append(Some("Copied!"), None);
-                    menu.set_menu_model(Some(&menu_model));
-
-                    // Position the menu at cursor
-                    if let Some(parent) = gesture.widget() {
-                        menu.set_parent(&parent);
-                        let rect = gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
-                        menu.set_pointing_to(Some(&rect));
-
-                        // Track this popover for cleanup
-                        let active_popovers_clone = active_popovers.clone();
-                        let menu_clone = menu.clone();
-                        active_popovers_clone.borrow_mut().push(menu_clone.clone());
-
-                        // Auto-hide after 1 second
-                        let menu_for_timeout = menu.clone();
-                        let active_popovers_for_timeout = active_popovers.clone();
-                        glib::timeout_add_seconds_local_once(1, move || {
-                            menu_for_timeout.unparent();
-                            // Remove from active popovers
-                            let mut popovers = active_popovers_for_timeout.borrow_mut();
-                            popovers.retain(|p| !p.eq(&menu_for_timeout));
-                        });
-
-                        menu.popup();
-                    }
-                });
-
-                // Add keyboard shortcut for Ctrl+C
-                let key_controller = gtk::EventControllerKey::new();
-                let text_for_keyboard = text_for_closures.clone();
-                key_controller.connect_key_pressed(move |_, key, _, modifier| {
-                    if key == gtk::gdk::Key::c && modifier == gtk::gdk::ModifierType::CONTROL_MASK {
-                        if let Some(display) = gtk::gdk::Display::default() {
-                            let clipboard = display.clipboard();
-                            clipboard.set_text(&text_for_keyboard);
-                        }
-                        return glib::Propagation::Stop;
-                    }
-                    glib::Propagation::Proceed
-                });
-
-                label.add_controller(key_controller);
-
-                label.add_controller(right_click_gesture);
-
-                self.content_grid
-                    .attach(&label, col as i32, row as i32, 1, 1);
-                row_widgets.push(label);
             }
 
             if conn.is_active() {
@@ -828,6 +890,14 @@ impl NetworkMonitorWindow {
             }
 
             row += 1;
+        }
+
+        // Hide excess widgets if the number of connections decreased
+        let total_widgets_needed = sorted_connections.len() * num_columns;
+        if existing_widget_count > total_widgets_needed {
+            for widget in row_widgets.drain(total_widgets_needed..) {
+                self.content_grid.remove(&widget);
+            }
         }
 
         // Update status
@@ -838,14 +908,8 @@ impl NetworkMonitorWindow {
             total_received,
         );
 
-        // Sync column widths after updating content
-        let header_grid = self.header_grid.clone();
-        let content_grid = self.content_grid.clone();
-        let column_widths = self.column_widths.clone();
-
-        glib::idle_add_local_once(move || {
-            Self::sync_column_widths(&header_grid, &content_grid, &column_widths);
-        });
+        // Sync column widths is handled by window resize and initial setup only,
+        // to prevent stuttering during periodic updates.
     }
 
     fn update_status(&self, total: usize, active: usize, total_sent: u64, total_received: u64) {

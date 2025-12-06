@@ -548,3 +548,14 @@ menubutton > popover > contents {
     margin: 0;
     padding: 0;
 }
+
+/* Enhanced menu hover states for better theme compatibility */
+modelbutton:hover {
+    background: var(--accent-bg-color);
+    color: var(--accent-fg-color);
+}
+
+menuitem:hover {
+    background: var(--accent-bg-color);
+    color: var(--accent-fg-color);
+}
