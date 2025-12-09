@@ -22,6 +22,24 @@ src/
 └── error_tests.rs    # Error handling tests
 ```
 
+## Performance Optimizations
+
+### UI Performance Enhancements
+- **Debouncing**: Implemented debouncing for UI updates (200ms delay, 500ms minimum interval) to prevent excessive updates and reduce CPU usage
+- **Virtualization**: Added row virtualization for large datasets (>100 connections) to show only first/last 50 rows with placeholders, significantly reducing widget count
+- **Column Width Caching**: Implemented caching system for column widths with 10px threshold changes to avoid repeated layout calculations
+- **Layout Optimization**: Reduced sampling rate for column width measurement (1 every 5 rows) and added conservative text width estimation
+
+### TUI Performance
+- **Layout Caching**: Added layout cache system with validation based on width and connection count changes
+- **Skip Rendering**: Implemented skip rendering when no significant changes detected to improve TUI responsiveness
+- **FPS Monitoring**: Added FPS monitoring with warnings for low performance
+
+### Critical Implementation Notes
+- **RefCell Management**: Careful RefCell borrowing patterns implemented to avoid runtime panics. Multiple mutable RefCell accesses are properly scoped to prevent borrowing conflicts.
+- **Memory Management**: Widget reuse implemented to minimize memory allocation and improve performance during frequent updates.
+- **Thread Safety**: All UI updates properly scheduled through GTK's main loop using `glib::spawn_future_local()` and `glib::idle_add_local_once()`.
+
 ## Common Patterns
 
 ### Actions and Menus (GTK4 Guidelines)
