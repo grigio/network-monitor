@@ -200,6 +200,11 @@ Common addresses are simplified for readability:
 - **Error handling**: Comprehensive error types with graceful recovery using `thiserror`
 - **Performance caching**: Process information and UI layout caching for optimal performance
 
+## Linux Packages
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/network-monitor.svg)](https://repology.org/project/network-monitor/versions)
+
+
 ## Donations
 
 If you find this project helpful, please consider making a donation to support its development.
