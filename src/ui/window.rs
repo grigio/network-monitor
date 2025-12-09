@@ -488,11 +488,17 @@ impl NetworkMonitorWindow {
         let css_provider = gtk::CssProvider::new();
         let css = include_str!("styles.css");
         css_provider.load_from_string(css);
-        gtk::style_context_add_provider_for_display(
-            &gtk::gdk::Display::default().unwrap(),
-            &css_provider,
-            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
-        );
+
+        // Get display with proper error handling
+        if let Some(display) = gtk::gdk::Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &css_provider,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        } else {
+            eprintln!("Warning: Could not get default display for CSS provider");
+        }
     }
 
     fn setup_actions(&self) {
@@ -666,8 +672,13 @@ impl NetworkMonitorWindow {
 
                 if widget_index < existing_widget_count {
                     // Reuse existing widget: only update text
-                    label = row_widgets[widget_index].downcast_ref::<Label>().unwrap();
-                    label.set_text(text);
+                    if let Some(widget) = row_widgets[widget_index].downcast_ref::<Label>() {
+                        label = widget;
+                        label.set_text(text);
+                    } else {
+                        eprintln!("Warning: Widget at index {} is not a Label", widget_index);
+                        continue;
+                    }
                 } else {
                     // Create new widget if needed (only happens when new connections appear)
                     let text_for_closures = text.clone();
@@ -769,6 +780,10 @@ impl NetworkMonitorWindow {
                         if let Some(display) = gtk::gdk::Display::default() {
                             let clipboard = display.clipboard();
                             clipboard.set_text(&copy_text);
+                        } else {
+                            eprintln!(
+                                "Warning: Could not access clipboard - display not available"
+                            );
                         }
 
                         let menu = PopoverMenu::builder().build();
@@ -808,6 +823,10 @@ impl NetworkMonitorWindow {
                             if let Some(display) = gtk::gdk::Display::default() {
                                 let clipboard = display.clipboard();
                                 clipboard.set_text(&text_for_keyboard);
+                            } else {
+                                eprintln!(
+                                    "Warning: Could not access clipboard - display not available"
+                                );
                             }
                             return glib::Propagation::Stop;
                         }
@@ -820,7 +839,13 @@ impl NetworkMonitorWindow {
                         .attach(&new_label, col as i32, row as i32, 1, 1);
                     row_widgets.push(new_label.clone());
                     // Get reference from the newly pushed widget in the vector
-                    label = row_widgets.last().unwrap().downcast_ref::<Label>().unwrap();
+                    if let Some(widget) = row_widgets.last().and_then(|w| w.downcast_ref::<Label>())
+                    {
+                        label = widget;
+                    } else {
+                        eprintln!("Warning: Failed to get reference to newly created Label widget");
+                        continue;
+                    }
                 }
 
                 // Update dynamic styling (must be done every update)

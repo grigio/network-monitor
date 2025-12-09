@@ -130,8 +130,9 @@ sudo ./scripts/install.sh    # System-wide install
 7. **WM Class Matching**: Ensure `StartupWMClass` in desktop file matches `window.set_class_name()` for GNOME dock pinning
 8. **Terminal Compatibility**: TUI requires proper terminal environment - avoid running in limited IDE terminals
 9. **Code Sharing**: Maintain shared modules (models, services, utils) to avoid duplication between GTK and TUI versions
-10. **Error Handling**: Use custom `NetworkMonitorError` types instead of `.unwrap()` calls for robust error recovery
-11. **Performance**: Utilize process caching and layout caching to reduce system calls and improve responsiveness
+10. **Unwrap Usage**: Only use `.unwrap()` or `.expect()` in tests, examples, or when you can **prove** the operation cannot fail (e.g., parsing hardcoded constants, valid regex patterns). For all production code handling external input, user data, or system resources, use proper error handling with `?` operator and custom error types.
+11. **Error Handling**: Use custom `NetworkMonitorError` types instead of `.unwrap()` calls for robust error recovery
+12. **Performance**: Utilize process caching and layout caching to reduce system calls and improve responsiveness
 12. **Security**: Regular dependency audits and automated security checks in CI pipeline
 13. **Code Quality**: Comprehensive unit tests, error recovery patterns, and consistent formatting utilities
 

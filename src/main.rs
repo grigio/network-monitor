@@ -119,8 +119,13 @@ impl NetworkMonitorApp {
 }
 
 fn main() {
-    // Initialize GTK
-    gtk::init().unwrap_or_else(|_| panic!("Failed to initialize GTK"));
+    // Initialize GTK with proper error handling
+    if let Err(e) = gtk::init() {
+        eprintln!("Failed to initialize GTK: {}", e);
+        eprintln!("This usually means the X11/Wayland display is not available.");
+        eprintln!("Try running in a proper desktop environment or check your display settings.");
+        std::process::exit(1);
+    }
 
     let app = NetworkMonitorApp::new();
     app.run();

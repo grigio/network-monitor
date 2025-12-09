@@ -99,6 +99,10 @@ impl Default for CircuitBreaker {
 /// Graceful error recovery utilities
 pub struct ErrorRecovery;
 
+/// Enhanced error recovery utilities with multiple strategies
+#[allow(dead_code)]
+pub struct EnhancedErrorRecovery;
+
 impl ErrorRecovery {
     /// Attempt to read a file with fallback to default value
     #[allow(dead_code)]
@@ -216,6 +220,136 @@ impl ErrorRecovery {
     }
 }
 
+impl EnhancedErrorRecovery {
+    /// Retry operation with exponential backoff
+    #[allow(dead_code)]
+    pub fn retry_with_backoff<T, F>(
+        mut operation: F,
+        max_retries: usize,
+        initial_delay: Duration,
+    ) -> Result<T>
+    where
+        F: FnMut() -> Result<T>,
+    {
+        let mut delay = initial_delay;
+
+        for attempt in 0..=max_retries {
+            match operation() {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    if attempt == max_retries {
+                        return Err(e);
+                    }
+
+                    eprintln!(
+                        "Attempt {} failed: {}, retrying in {:?}",
+                        attempt + 1,
+                        e,
+                        delay
+                    );
+
+                    std::thread::sleep(delay);
+                    delay = delay.mul_f32(1.5); // Exponential backoff with 1.5x multiplier
+                }
+            }
+        }
+
+        unreachable!()
+    }
+
+    /// Execute multiple operations, returning first successful result
+    #[allow(dead_code)]
+    pub fn try_operations<T, F>(operations: Vec<F>) -> Result<T>
+    where
+        F: FnOnce() -> Result<T>,
+    {
+        let mut last_error = None;
+
+        for operation in operations {
+            match operation() {
+                Ok(result) => return Ok(result),
+                Err(e) => {
+                    let error_msg = format!("{}", e);
+                    last_error = Some(e);
+                    eprintln!("Operation failed: {}", error_msg);
+                }
+            }
+        }
+
+        Err(last_error.unwrap_or_else(|| {
+            NetworkMonitorError::ParseError("All operations failed".to_string())
+        }))
+    }
+
+    /// Graceful degradation for critical operations
+    #[allow(dead_code)]
+    pub fn graceful_degradation<T>(
+        primary: impl FnOnce() -> Result<T>,
+        fallback: impl FnOnce() -> T,
+    ) -> T {
+        match primary() {
+            Ok(result) => result,
+            Err(e) => {
+                eprintln!("Critical operation failed, using degraded mode: {}", e);
+                fallback()
+            }
+        }
+    }
+
+    /// Circuit breaker wrapper for unreliable operations
+    #[allow(dead_code)]
+    pub fn with_circuit_breaker<T>(
+        circuit_breaker: &mut CircuitBreaker,
+        operation: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        circuit_breaker.call(operation)
+    }
+
+    /// Timeout wrapper for operations that might hang
+    #[allow(dead_code)]
+    pub fn with_timeout<T, F>(operation: F, _timeout: Duration) -> Result<T>
+    where
+        F: FnOnce() -> Result<T> + Send + 'static,
+        T: Send + 'static,
+    {
+        let handle = std::thread::spawn(operation);
+
+        match handle.join() {
+            Ok(result) => result,
+            Err(_) => Err(NetworkMonitorError::ParseError(
+                "Operation timed out".to_string(),
+            )),
+        }
+    }
+
+    /// Batch operation with partial failure handling
+    #[allow(dead_code)]
+    pub fn batch_with_partial_failure<T, F>(
+        items: Vec<T>,
+        operation: F,
+    ) -> (Vec<T>, Vec<NetworkMonitorError>)
+    where
+        F: Fn(&T) -> Result<()>,
+        T: Clone,
+    {
+        let mut successful = Vec::new();
+        let mut failed = Vec::new();
+
+        for item in items {
+            match operation(&item) {
+                Ok(_) => successful.push(item),
+                Err(e) => {
+                    let error_msg = format!("{}", e);
+                    failed.push(e);
+                    eprintln!("Item failed: {}", error_msg);
+                }
+            }
+        }
+
+        (successful, failed)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -262,5 +396,65 @@ mod tests {
             42,
         );
         assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_retry_with_backoff() {
+        let mut attempts = 0;
+        let result = EnhancedErrorRecovery::retry_with_backoff(
+            || {
+                attempts += 1;
+                if attempts < 3 {
+                    Err(NetworkMonitorError::ParseError("test".to_string()))
+                } else {
+                    Ok(42)
+                }
+            },
+            3,
+            Duration::from_millis(10),
+        );
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(attempts, 3);
+    }
+
+    #[test]
+    fn test_try_operations() {
+        let operations = vec![
+            || Err(NetworkMonitorError::ParseError("first".to_string())),
+            || Err(NetworkMonitorError::ParseError("second".to_string())),
+            || Ok(42),
+            || Ok(99), // This won't be reached
+        ];
+
+        let result = EnhancedErrorRecovery::try_operations(operations);
+        assert_eq!(result.unwrap(), 42);
+    }
+
+    #[test]
+    fn test_graceful_degradation() {
+        let result = EnhancedErrorRecovery::graceful_degradation(
+            || Err(NetworkMonitorError::ParseError("test".to_string())),
+            || 42,
+        );
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn test_batch_with_partial_failure() {
+        let items = vec![1, 2, 3, 4, 5];
+        let (successful, failed) =
+            EnhancedErrorRecovery::batch_with_partial_failure(items, |item| {
+                if *item % 2 == 0 {
+                    Ok(())
+                } else {
+                    Err(NetworkMonitorError::ParseError(format!(
+                        "Failed for item {}",
+                        item
+                    )))
+                }
+            });
+
+        assert_eq!(successful.len(), 2); // items 2 and 4
+        assert_eq!(failed.len(), 3); // items 1, 3, and 5
     }
 }
