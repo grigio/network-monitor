@@ -107,13 +107,16 @@ impl App {
                 {
                     Ok((updated_connections, current_io)) => {
                         // Skip render if connection count hasn't changed significantly
-                        let significant_change = (updated_connections.len() as isize - self.connections.len() as isize).abs() > 5;
-                        
+                        let significant_change = (updated_connections.len() as isize
+                            - self.connections.len() as isize)
+                            .abs()
+                            > 5;
+
                         self.connections = updated_connections;
                         self.previous_io = current_io;
                         self.last_update = Instant::now();
                         self.sort_connections();
-                        
+
                         // Skip next render if no significant changes to improve performance
                         self.skip_next_render = !significant_change && self.connections.len() > 50;
                     }
@@ -359,7 +362,10 @@ fn ui(f: &mut Frame, app: &mut App) {
     let start_col = app.horizontal_scroll.min(total_columns.saturating_sub(1));
 
     // Check if we can use cached layout
-    let (visible_columns, remaining_width) = if app.layout_cache.is_valid(chunks[1].width, app.connections.len()) {
+    let (visible_columns, remaining_width) = if app
+        .layout_cache
+        .is_valid(chunks[1].width, app.connections.len())
+    {
         (
             app.layout_cache.visible_columns.clone(),
             available_width.saturating_sub(
@@ -702,12 +708,13 @@ fn main() -> Result<()> {
         } else {
             // Always draw last - this ensures instant UI response
             terminal.draw(|f| ui(f, &mut app))?;
-            
+
             // Track render performance
             app.render_count += 1;
             let now = Instant::now();
             if now.duration_since(app.last_render_time).as_secs() >= 5 {
-                let fps = app.render_count as f64 / now.duration_since(app.last_render_time).as_secs_f64();
+                let fps = app.render_count as f64
+                    / now.duration_since(app.last_render_time).as_secs_f64();
                 if fps < 30.0 {
                     eprintln!("Performance warning: Low FPS ({:.1}) detected", fps);
                 }
