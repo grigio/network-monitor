@@ -653,7 +653,7 @@ impl NetworkMonitorWindow {
         let connection_count = sorted_connections.len();
 
         // Apply virtualization for large datasets
-        let virtualized_connections = if self.virtualization_enabled.borrow().clone()
+        let virtualized_connections = if *self.virtualization_enabled.borrow()
             && connection_count > *self.max_visible_rows.borrow()
         {
             // Show first 50 and last 50 rows with a virtualized middle section
@@ -704,7 +704,7 @@ impl NetworkMonitorWindow {
 
         for (conn_index, conn) in virtualized_connections.iter().enumerate() {
             // Skip placeholder rows in virtualized mode
-            if self.virtualization_enabled.borrow().clone()
+            if *self.virtualization_enabled.borrow()
                 && conn_index > *self.max_visible_rows.borrow() / 2
                 && conn_index < virtualized_connections.len() - *self.max_visible_rows.borrow() / 2
                 && conn_index != virtualized_connections.len() / 2
@@ -716,7 +716,7 @@ impl NetworkMonitorWindow {
             let start_widget_index = conn_index * num_columns;
 
             // Format display values
-            let prog_pid = if self.virtualization_enabled.borrow().clone()
+            let prog_pid = if *self.virtualization_enabled.borrow()
                 && conn_index == virtualized_connections.len() / 2
             {
                 "...".to_string()
@@ -724,7 +724,7 @@ impl NetworkMonitorWindow {
                 conn.get_process_display()
             };
 
-            let local_resolved = if self.virtualization_enabled.borrow().clone()
+            let local_resolved = if *self.virtualization_enabled.borrow()
                 && conn_index == virtualized_connections.len() / 2
             {
                 "...".to_string()
@@ -732,7 +732,7 @@ impl NetworkMonitorWindow {
                 self.resolver.resolve_address(&conn.local)
             };
 
-            let remote_resolved = if self.virtualization_enabled.borrow().clone()
+            let remote_resolved = if *self.virtualization_enabled.borrow()
                 && conn_index == virtualized_connections.len() / 2
             {
                 "...".to_string()
@@ -740,7 +740,7 @@ impl NetworkMonitorWindow {
                 self.resolver.resolve_address(&conn.remote)
             };
 
-            let process_path = if self.virtualization_enabled.borrow().clone()
+            let process_path = if *self.virtualization_enabled.borrow()
                 && conn_index == virtualized_connections.len() / 2
             {
                 "...".to_string()
@@ -755,14 +755,14 @@ impl NetworkMonitorWindow {
                 local_resolved,
                 remote_resolved,
                 conn.state.clone(),
-                if self.virtualization_enabled.borrow().clone()
+                if *self.virtualization_enabled.borrow()
                     && conn_index == virtualized_connections.len() / 2
                 {
                     "...".to_string()
                 } else {
                     Formatter::format_bytes(conn.tx_rate)
                 },
-                if self.virtualization_enabled.borrow().clone()
+                if *self.virtualization_enabled.borrow()
                     && conn_index == virtualized_connections.len() / 2
                 {
                     "...".to_string()
@@ -961,7 +961,7 @@ impl NetworkMonitorWindow {
                         label.remove_css_class("success");
                         label.remove_css_class("warning");
                         label.remove_css_class("dim-label");
-                        if self.virtualization_enabled.borrow().clone()
+                        if *self.virtualization_enabled.borrow()
                             && conn_index == virtualized_connections.len() / 2
                         {
                             label.add_css_class("dim-label");
@@ -976,7 +976,7 @@ impl NetworkMonitorWindow {
                     3 => {
                         // Destination rate color
                         label.remove_css_class("accent");
-                        if self.virtualization_enabled.borrow().clone()
+                        if *self.virtualization_enabled.borrow()
                             && conn_index == virtualized_connections.len() / 2
                         {
                             label.add_css_class("dim-label");
@@ -992,7 +992,7 @@ impl NetworkMonitorWindow {
                         label.remove_css_class("warning");
                         label.remove_css_class("error");
                         label.remove_css_class("dim-label");
-                        if self.virtualization_enabled.borrow().clone()
+                        if *self.virtualization_enabled.borrow()
                             && conn_index == virtualized_connections.len() / 2
                         {
                             label.add_css_class("dim-label");
@@ -1009,7 +1009,7 @@ impl NetworkMonitorWindow {
                         // TX Rate color
                         label.remove_css_class("error");
                         label.remove_css_class("dim-label");
-                        if self.virtualization_enabled.borrow().clone()
+                        if *self.virtualization_enabled.borrow()
                             && conn_index == virtualized_connections.len() / 2
                         {
                             label.add_css_class("dim-label");
@@ -1023,7 +1023,7 @@ impl NetworkMonitorWindow {
                         // RX Rate color
                         label.remove_css_class("accent");
                         label.remove_css_class("dim-label");
-                        if self.virtualization_enabled.borrow().clone()
+                        if *self.virtualization_enabled.borrow()
                             && conn_index == virtualized_connections.len() / 2
                         {
                             label.add_css_class("dim-label");
@@ -1042,13 +1042,13 @@ impl NetworkMonitorWindow {
                 }
             }
 
-            if !self.virtualization_enabled.borrow().clone()
+            if (!*self.virtualization_enabled.borrow()
                 || conn_index <= *self.max_visible_rows.borrow() / 2
-                || conn_index >= virtualized_connections.len() - *self.max_visible_rows.borrow() / 2
+                || conn_index
+                    >= virtualized_connections.len() - *self.max_visible_rows.borrow() / 2)
+                && conn.is_active()
             {
-                if conn.is_active() {
-                    active_connections += 1;
-                }
+                active_connections += 1;
             }
 
             row += 1;
@@ -1063,7 +1063,7 @@ impl NetworkMonitorWindow {
         }
 
         // Update status
-        let display_count = if self.virtualization_enabled.borrow().clone()
+        let display_count = if *self.virtualization_enabled.borrow()
             && connection_count > *self.max_visible_rows.borrow()
         {
             format!(
@@ -1223,7 +1223,7 @@ impl NetworkMonitorWindow {
         window_clone.connect_default_width_notify(move |_| {
             // Debounce column width updates
             let now = Instant::now();
-            let last_sync = sync_time_clone.borrow().clone();
+            let last_sync = *sync_time_clone.borrow();
 
             if now.duration_since(last_sync).as_millis() > 200 {
                 *sync_time_clone.borrow_mut() = now;
@@ -1411,7 +1411,7 @@ impl NetworkMonitorWindow {
     /// Schedule a debounced update to prevent excessive UI updates
     fn schedule_debounced_update(self: &Rc<Self>) {
         let now = Instant::now();
-        let last_update = self.last_update_time.borrow().clone();
+        let last_update = *self.last_update_time.borrow();
 
         // Check if we should debounce based on time since last update
         if now.duration_since(last_update).as_millis() < 500 {
