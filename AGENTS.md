@@ -136,6 +136,11 @@ cargo deny check             # License and dependency checks
 # Installation
 ./scripts/install.sh         # Local install
 sudo ./scripts/install.sh    # System-wide install
+
+# before commit run
+cargo outdated
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --all -- --check
 ```
 
 ## Critical Pitfalls
