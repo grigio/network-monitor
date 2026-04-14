@@ -141,6 +141,7 @@ sudo ./scripts/install.sh    # System-wide install
 cargo outdated
 cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --all -- --check
+cargo build
 ```
 
 ## Critical Pitfalls
