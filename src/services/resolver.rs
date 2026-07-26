@@ -2,20 +2,14 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-/// Service for resolving IP addresses to hostnames
 #[derive(Clone)]
-#[allow(dead_code)] // Used by GTK version but not TUI
 pub struct AddressResolver {
-    #[allow(dead_code)] // Used by GTK version but not TUI
     cache: Arc<Mutex<HashMap<String, String>>>,
-    #[allow(dead_code)] // Used by GTK version but not TUI
     pending: Arc<Mutex<HashSet<String>>>,
-    #[allow(dead_code)] // Used by GTK version but not TUI
     resolve_hosts: Arc<Mutex<bool>>,
 }
 
 impl AddressResolver {
-    #[allow(dead_code)] // Used by GTK version but not TUI
     pub fn new(resolve_hosts: bool) -> Self {
         Self {
             cache: Arc::new(Mutex::new(HashMap::new())),
@@ -24,10 +18,7 @@ impl AddressResolver {
         }
     }
 
-    /// Resolve an address to hostname if resolution is enabled
-    #[allow(dead_code)] // Used by GTK version but not TUI
     pub fn resolve_address(&self, addr: &str) -> String {
-        // Handle special cases
         if addr == "0.0.0.0:*" || addr == "*:*" || addr == "[::]:*" {
             return "ANY".to_string();
         } else if addr.starts_with("127.0.0.1:") || addr.starts_with("[::1]:") {
@@ -36,27 +27,24 @@ impl AddressResolver {
             return "MDNS".to_string();
         }
 
-        // Check if resolution is disabled with timeout
         let resolve_hosts = match self.resolve_hosts.lock() {
             Ok(guard) => *guard,
-            Err(_) => return addr.to_string(), // Mutex poisoned, return original
+            Err(_) => return addr.to_string(),
         };
         if !resolve_hosts {
             return addr.to_string();
         }
 
-        // Check cache first with timeout
         {
             let cache = match self.cache.lock() {
                 Ok(guard) => guard,
-                Err(_) => return addr.to_string(), // Mutex poisoned
+                Err(_) => return addr.to_string(),
             };
             if let Some(resolved) = cache.get(addr) {
                 return resolved.clone();
             }
         }
 
-        // Extract IP address and port
         let (ip_part, port) = if let Some(last_colon) = addr.rfind(':') {
             let ip_with_brackets = &addr[..last_colon];
             let port = &addr[last_colon + 1..];
@@ -69,14 +57,13 @@ impl AddressResolver {
 
             (ip_part.to_string(), port.to_string())
         } else {
-            (addr.to_string(), "".to_string())
+            (addr.to_string(), String::new())
         };
 
-        // Start async resolution if not already pending
         {
             let mut pending = match self.pending.lock() {
                 Ok(guard) => guard,
-                Err(_) => return addr.to_string(), // Mutex poisoned
+                Err(_) => return addr.to_string(),
             };
             if !pending.contains(&ip_part) {
                 pending.insert(ip_part.clone());
@@ -86,14 +73,12 @@ impl AddressResolver {
                 let pending = self.pending.clone();
 
                 thread::spawn(move || {
-                    // Simple hostname resolution using host command with timeout
                     let resolved = match std::process::Command::new("timeout")
                         .args(["5s", "host", &ip_part])
                         .output()
                     {
                         Ok(output) => {
                             let output_str = String::from_utf8_lossy(&output.stdout);
-                            // Simple parsing for hostname
                             let mut result = addr.clone();
                             for line in output_str.lines() {
                                 if line.contains("domain name pointer")
@@ -120,12 +105,10 @@ impl AddressResolver {
                         Err(_) => addr.clone(),
                     };
 
-                    // Update cache with error handling
                     if let Ok(mut cache) = cache.lock() {
                         cache.insert(addr.clone(), resolved);
                     }
 
-                    // Remove from pending with error handling
                     if let Ok(mut pending) = pending.lock() {
                         pending.remove(&ip_part);
                     }
@@ -136,8 +119,6 @@ impl AddressResolver {
         addr.to_string()
     }
 
-    /// Set whether to resolve hostnames
-    #[allow(dead_code)] // Used by GTK version but not TUI
     pub fn set_resolve_hosts(&self, resolve: bool) {
         if let Ok(mut resolve_hosts) = self.resolve_hosts.lock() {
             *resolve_hosts = resolve;
@@ -149,16 +130,14 @@ impl AddressResolver {
         }
     }
 
-    /// Get current resolve hosts setting
     #[allow(dead_code)]
     pub fn get_resolve_hosts(&self) -> bool {
         self.resolve_hosts
             .lock()
             .map(|guard| *guard)
-            .unwrap_or(false) // Default to false if mutex is poisoned
+            .unwrap_or(false)
     }
 
-    /// Clear the resolution cache
     #[allow(dead_code)]
     pub fn clear_cache(&self) {
         if let Ok(mut cache) = self.cache.lock() {

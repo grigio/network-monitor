@@ -1,9 +1,6 @@
-pub mod network;
-pub mod process_cache;
+pub mod connection_monitor;
+pub mod ebpf_monitor;
 pub mod resolver;
-#[cfg(test)]
-mod tests;
 
-pub use network::NetworkService;
-pub use process_cache::ProcessCache;
+pub use connection_monitor::detect_best_monitor;
 pub use resolver::AddressResolver;

@@ -1,0 +1,26 @@
+[workspace]
+
+[package]
+name = "network-monitor-ebpf"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+aya-ebpf = "0.1"
+aya-ebpf-bindings = "0.1"
+aya-log-ebpf = "0.1"
+network-monitor-common = { path = "../network-monitor-common" }
+
+[[bin]]
+name = "network-monitor-ebpf"
+path = "src/main.rs"
+
+[features]
+default = []
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

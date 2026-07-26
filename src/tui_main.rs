@@ -7,7 +7,8 @@ use crossterm::{
 };
 use error::Result;
 use models::Connection;
-use services::{AddressResolver, NetworkService};
+use services::connection_monitor::ConnectionMonitor;
+use services::{detect_best_monitor, AddressResolver};
 use std::collections::HashMap;
 use std::env;
 use std::io;
@@ -31,10 +32,10 @@ mod utils;
 
 /// Layout cache for TUI performance
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 struct LayoutCache {
     available_width: u16,
     visible_columns: Vec<usize>,
+    #[allow(dead_code)]
     column_constraints: Vec<Constraint>,
     last_calculation: Instant,
     last_connection_count: usize,
@@ -61,7 +62,7 @@ impl LayoutCache {
 /// Application state for the TUI
 struct App {
     connections: Vec<Connection>,
-    network_service: NetworkService,
+    monitor: Box<dyn ConnectionMonitor>,
     resolver: AddressResolver,
     previous_io: HashMap<String, models::ProcessIO>,
     table_state: TableState,
@@ -77,10 +78,10 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
+    fn with_monitor(monitor: Box<dyn ConnectionMonitor>) -> Self {
         let mut app = Self {
             connections: Vec::new(),
-            network_service: NetworkService::new(),
+            monitor,
             resolver: AddressResolver::new(false),
             previous_io: HashMap::new(),
             table_state: TableState::default(),
@@ -99,10 +100,10 @@ impl App {
     }
 
     fn update_connections(&mut self) {
-        match self.network_service.get_connections() {
+        match self.monitor.get_connections() {
             Ok(connections) => {
                 match self
-                    .network_service
+                    .monitor
                     .update_connection_rates(connections, &self.previous_io)
                 {
                     Ok((updated_connections, current_io)) => {
@@ -616,11 +617,17 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Create monitor first (may fail if eBPF unavailable, e.g. no permissions)
+    // Must happen BEFORE terminal setup so error messages display cleanly.
+    let monitor = detect_best_monitor().unwrap_or_else(|e| {
+        eprintln!("Error: {e}");
+        eprintln!("Run with sudo or set capabilities: sudo setcap cap_bpf,cap_net_admin,cap_perfmon+ep <binary>");
+        std::process::exit(1);
+    });
+
     // Try to enable raw mode with better error handling
     match enable_raw_mode() {
-        Ok(()) => {
-            // Continue with terminal setup
-        }
+        Ok(()) => {}
         Err(e) => {
             eprintln!("Error: Cannot initialize terminal.");
             eprintln!("This usually means you're not in a real terminal.");
@@ -634,7 +641,7 @@ fn main() -> Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new();
+    let mut app = App::with_monitor(monitor);
     let mut last_tick = Instant::now();
 
     let mut last_input_time = Instant::now();

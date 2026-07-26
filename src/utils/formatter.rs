@@ -1,8 +1,6 @@
-/// Utility for formatting byte values and other common formatting tasks
 pub struct Formatter;
 
 impl Formatter {
-    /// Format bytes as human readable string with rate (per second)
     pub fn format_bytes(bytes_val: u64) -> String {
         let mut bytes_val = bytes_val as f64;
         let units = ["B", "KB", "MB", "GB"];
@@ -16,12 +14,9 @@ impl Formatter {
         format!("{bytes_val:.1}TB/s")
     }
 
-    /// Format bytes as human readable string (total)
-    #[allow(dead_code)]
     pub fn format_bytes_total(bytes_val: u64) -> String {
         let bytes_val = bytes_val as f64;
 
-        // Always show in MB for consistency, with 2 decimal places
         if bytes_val < 1024.0 {
             format!("{bytes_val:.1} B")
         } else if bytes_val < 1024.0 * 1024.0 {
@@ -31,7 +26,6 @@ impl Formatter {
         }
     }
 
-    /// Format bytes with custom precision
     #[allow(dead_code)]
     pub fn format_bytes_precise(bytes_val: u64, precision: usize) -> String {
         let mut bytes_val = bytes_val as f64;
@@ -46,7 +40,6 @@ impl Formatter {
         format!("{bytes_val:.precision$}PB/s", precision = precision)
     }
 
-    /// Format duration in seconds to human readable string
     #[allow(dead_code)]
     pub fn format_duration(seconds: u64) -> String {
         if seconds < 60 {
@@ -66,7 +59,6 @@ impl Formatter {
         }
     }
 
-    /// Format connection count with proper pluralization
     #[allow(dead_code)]
     pub fn format_connection_count(count: usize) -> String {
         match count {
@@ -76,7 +68,6 @@ impl Formatter {
         }
     }
 
-    /// Format protocol name consistently
     #[allow(dead_code)]
     pub fn format_protocol(protocol: &str) -> String {
         match protocol.to_uppercase().as_str() {
@@ -88,7 +79,6 @@ impl Formatter {
         }
     }
 
-    /// Format state name consistently
     #[allow(dead_code)]
     pub fn format_state(state: &str) -> String {
         match state {
@@ -108,7 +98,6 @@ impl Formatter {
         }
     }
 
-    /// Truncate string to fit within max length with ellipsis
     #[allow(dead_code)]
     pub fn truncate_string(s: &str, max_len: usize) -> String {
         if s.len() <= max_len {
@@ -120,7 +109,6 @@ impl Formatter {
         }
     }
 
-    /// Format PID consistently
     #[allow(dead_code)]
     pub fn format_pid(pid: &str) -> String {
         if pid == "N/A" {
@@ -130,7 +118,6 @@ impl Formatter {
         }
     }
 
-    /// Format program name with fallback
     #[allow(dead_code)]
     pub fn format_program(program: &str) -> String {
         if program.is_empty() || program == "N/A" {
@@ -141,7 +128,6 @@ impl Formatter {
     }
 }
 
-/// Convenience functions for backward compatibility and easier access
 #[allow(dead_code)]
 pub fn format_bytes(bytes_val: u64) -> String {
     Formatter::format_bytes(bytes_val)

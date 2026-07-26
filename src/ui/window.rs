@@ -12,7 +12,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::models::{Connection, ProcessIO};
-use crate::services::{AddressResolver, NetworkService};
+use crate::services::connection_monitor::ConnectionMonitor;
+use crate::services::{detect_best_monitor, AddressResolver};
 use crate::utils::formatter::Formatter;
 
 /// Main application window
@@ -24,7 +25,7 @@ pub struct NetworkMonitorWindow {
     header_labels: Rc<RefCell<Vec<Label>>>,
     prev_io: Arc<Mutex<HashMap<String, ProcessIO>>>,
     resolver: AddressResolver,
-    network_service: NetworkService,
+    monitor: Box<dyn ConnectionMonitor>,
     sort_column: Rc<RefCell<usize>>,
     sort_ascending: Rc<RefCell<bool>>,
     row_widgets: Rc<RefCell<Vec<Label>>>,
@@ -114,7 +115,15 @@ impl NetworkMonitorWindow {
             header_labels: Rc::new(RefCell::new(Vec::new())),
             prev_io: Arc::new(Mutex::new(HashMap::new())),
             resolver: AddressResolver::new(true),
-            network_service: NetworkService::new(),
+            monitor: match detect_best_monitor() {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("ERROR: {e}");
+                    eprintln!("eBPF requires Linux 5.8+ and the following capabilities:");
+                    eprintln!("  sudo setcap cap_bpf,cap_net_admin,cap_perfmon+ep <binary>");
+                    std::process::exit(1);
+                }
+            },
             sort_column: Rc::new(RefCell::new(6)),
             sort_ascending: Rc::new(RefCell::new(false)),
             row_widgets: Rc::new(RefCell::new(Vec::new())),
@@ -603,7 +612,7 @@ impl NetworkMonitorWindow {
         }
 
         // Get connections
-        let connections = match self.network_service.get_connections() {
+        let connections = match self.monitor.get_connections() {
             Ok(conn) => conn,
             Err(e) => {
                 eprintln!("Failed to get connections: {}", e);
@@ -617,16 +626,14 @@ impl NetworkMonitorWindow {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .clone();
-        let (updated_connections, current_io) = match self
-            .network_service
-            .update_connection_rates(connections, &prev_io)
-        {
-            Ok(result) => result,
-            Err(e) => {
-                eprintln!("Failed to update connection rates: {}", e);
-                return;
-            }
-        };
+        let (updated_connections, current_io) =
+            match self.monitor.update_connection_rates(connections, &prev_io) {
+                Ok(result) => result,
+                Err(e) => {
+                    eprintln!("Failed to update connection rates: {}", e);
+                    return;
+                }
+            };
 
         // Calculate total sent/received data
         let mut total_sent = 0u64;

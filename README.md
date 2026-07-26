@@ -19,7 +19,7 @@ A real-time network connection monitoring tool built with Rust and GTK4, display
 - **Connection filtering**: Filters out localhost connections for cleaner output
 - **GNOME integration**: Proper WM class support for dock pinning and desktop integration
 - **Dual installation**: Supports both user-local and system-wide installation
-- **Robust error handling**: Graceful degradation with comprehensive error recovery
+- **Robust error handling**: Comprehensive error recovery with clear setup guidance
 - **Performance optimized**: Process caching and layout caching for improved responsiveness
 
 ## Requirements
@@ -28,6 +28,8 @@ A real-time network connection monitoring tool built with Rust and GTK4, display
 - GTK4 development libraries
 - Libadwaita development libraries
 - Linux system with `/proc` filesystem
+- Linux 5.8+ (for eBPF granular capabilities)
+- Nightly Rust and `bpf-linker` (for eBPF compilation)
 
 ### Installation on Ubuntu/Debian:
 ```bash
@@ -181,24 +183,63 @@ Common addresses are simplified for readability:
 
 ## How It Works
 
-1. Reads `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`, and `/proc/net/udp6` for active connections
-2. Maps socket inodes to processes using `/proc/*/fd` for accurate PID identification
-3. Reads `/proc/[pid]/io` for real-time I/O statistics
-4. Calculates rates by comparing I/O between updates
-5. Updates GTK4 interface every 3 seconds with current connection state
-6. **Performance optimizations**: Uses cached process mapping and layout calculations to reduce system calls
-7. **Error resilience**: Handles filesystem errors gracefully without application crashes
+### eBPF Backend (event-driven)
+
+The app uses kernel-level kprobes (`tcp_v4_connect`, `tcp_v6_connect`, `tcp_close`,
+`inet_csk_accept`) instead of polling `/proc/net`. This provides:
+
+- **Event-driven**: Sub-millisecond event delivery, no polling overhead (~1-3% CPU)
+- **Direct PID**: Captured at probe point via `bpf_get_current_pid_tgid()`, no inode scanning
+- **Short-lived connections**: Never missed between poll intervals
+
+### eBPF Mode
+
+The eBPF backend provides **event-driven** connection monitoring with lower overhead and real-time
+events, compared to the default `/proc/net` polling approach. It can capture short-lived connections
+that polling might miss.
+
+**Prerequisites:**
+```bash
+rustup toolchain install nightly
+cargo install bpf-linker
+```
+
+**Build and run:**
+```bash
+cargo build
+```
+
+**Run as normal user** (kernel 5.8+ required):
+
+Grant the required Linux capabilities to the binary once:
+```bash
+sudo setcap cap_bpf,cap_net_admin,cap_perfmon+ep target/debug/network-monitor
+./target/debug/network-monitor
+```
+
+Or for the TUI version:
+```bash
+sudo setcap cap_bpf,cap_net_admin,cap_perfmon+ep target/debug/nmt
+./target/debug/nmt
+```
+
+For release builds, adjust the path accordingly:
+```bash
+sudo setcap cap_bpf,cap_net_admin,cap_perfmon+ep target/release/network-monitor
+```
+
+The app will exit with a setup message if eBPF is unavailable (missing capabilities or
+unsupported kernel).
 
 ## Architecture
-
 - **GTK4**: Modern cross-platform GUI framework
 - **Libadwaita**: GNOME-style UI components
 - **Tokio**: Async runtime for concurrent operations
-- **Native socket parsing**: Direct `/proc/net` filesystem access for connection data
-- **Process mapping**: Inode-based process identification via `/proc/*/fd`
-- **System calls**: Direct interaction with `/proc` filesystem for I/O statistics
+- **Aya + eBPF**: Kernel-level connection tracing with kprobes for real-time events
+- **Direct PID**: Process identification via `bpf_get_current_pid_tgid()` at the probe point
+- **System calls**: Direct `/proc/[pid]/io` reading for I/O statistics
 - **Error handling**: Comprehensive error types with graceful recovery using `thiserror`
-- **Performance caching**: Process information and UI layout caching for optimal performance
+- **Performance caching**: UI layout caching for optimal performance
 
 ## Linux Packages
 

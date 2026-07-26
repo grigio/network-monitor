@@ -35,3 +35,33 @@ jobs:
         run: cargo build --verbose
       - name: Run tests
         run: cargo test --verbose
+      - name: Smoke test — version
+        run: timeout 3 ./target/debug/nmt --version
+      - name: Smoke test — as normal user (expect clean error, no terminal corruption)
+        run: |
+          set +e
+          output=$(timeout 5 ./target/debug/nmt 2>&1)
+          rc=$?
+          set -e
+          echo "$output"
+          # Must exit with error BEFORE terminal setup (no raw mode corruption)
+          if [ "$rc" -eq 1 ]; then
+            echo "✓ nmt exited with code 1 (expected)"
+          else
+            echo "⚠ Unexpected exit code: $rc"
+            exit 1
+          fi
+      - name: Smoke test — as root (expect clean startup or clean error)
+        run: |
+          set +e
+          output=$(timeout 5 sudo -E ./target/debug/nmt 2>&1)
+          rc=$?
+          set -e
+          echo "$output"
+          # Root may succeed if eBPF works, or fail with clean error
+          if [ "$rc" -eq 0 ] || [ "$rc" -eq 1 ]; then
+            echo "✓ nmt exited cleanly (code $rc)"
+          else
+            echo "⚠ Unexpected exit code: $rc"
+            exit 1
+          fi
