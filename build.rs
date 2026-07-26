@@ -9,7 +9,7 @@ fn main() {
 }
 
 fn run_nightly_cargo(args: &[&str], ebpf_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let nightly_cargo = find_nightly_cargo()?;
+    let mut nightly_cargo = find_nightly_cargo()?;
 
     let output = nightly_cargo
         .args(args)
