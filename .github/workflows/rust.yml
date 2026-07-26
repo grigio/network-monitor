@@ -14,6 +14,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install nightly Rust + bpf-linker
+        run: |
+          rustup toolchain install nightly
+          rustup target add bpfel-unknown-none --toolchain nightly
+          cargo install bpf-linker
       - name: Install deps
         run: |
           sudo apt-get update

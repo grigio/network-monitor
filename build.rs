@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn main() {
@@ -8,48 +8,13 @@ fn main() {
     try_build_ebpf(&dst).expect("Failed to build eBPF programs (required)");
 }
 
-fn try_build_ebpf(dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let nightly_root = Path::new(
-        "/home/grigio/Code/sandbox-bwrap-nix/sandbox-home/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu",
-    );
-    let nightly_lib = nightly_root.join("lib");
-    let cargo_bin = Path::new("/home/grigio/Code/sandbox-bwrap-nix/sandbox-home/.cargo/bin");
+fn run_nightly_cargo(args: &[&str], ebpf_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let nightly_cargo = find_nightly_cargo()?;
 
-    let nightly_bin = nightly_root.join("bin");
-
-    let new_path = format!(
-        "{}:{}:{}",
-        nightly_bin.display(),
-        cargo_bin.display(),
-        std::env::var("PATH").unwrap_or_default(),
-    );
-    let new_ld_path = format!(
-        "{}:{}",
-        nightly_lib.display(),
-        std::env::var("LD_LIBRARY_PATH").unwrap_or_default(),
-    );
-    std::env::set_var("PATH", &new_path);
-    std::env::set_var("LD_LIBRARY_PATH", &new_ld_path);
-
-    let nightly_cargo = nightly_bin.join("cargo");
-    let ebpf_dir = Path::new("network-monitor-ebpf");
-    let target = "bpfel-unknown-none";
-
-    let mut cmd = Command::new(&nightly_cargo);
-    cmd.args([
-        "build",
-        "--release",
-        "--target",
-        target,
-        "-Z",
-        "build-std=core",
-    ])
-    .current_dir(ebpf_dir)
-    .env("RUSTC", nightly_bin.join("rustc"))
-    .env("CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER", "gcc")
-    .env_remove("RUSTC_WORKSPACE_WRAPPER");
-
-    let output = cmd
+    let output = nightly_cargo
+        .args(args)
+        .current_dir(ebpf_dir)
+        .env_remove("RUSTC_WORKSPACE_WRAPPER")
         .output()
         .map_err(|e| format!("Failed to run nightly cargo: {e}"))?;
 
@@ -57,47 +22,124 @@ fn try_build_ebpf(dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(format!("Nightly cargo build failed:\n{stderr}").into());
     }
+    Ok(())
+}
 
-    let binary = ebpf_dir
-        .join("target")
-        .join(target)
-        .join("release")
-        .join("network-monitor-ebpf");
-    let found = if binary.exists() {
-        std::fs::copy(&binary, dst).map_err(|e| format!("Failed to copy {binary:?}: {e}"))?;
-        true
-    } else {
-        false
-    };
+fn find_nightly_cargo() -> Result<Command, Box<dyn std::error::Error>> {
+    // 1) Try `cargo +nightly` (rustup proxy)
+    let probe = Command::new("cargo")
+        .args(["+nightly", "build", "--version"])
+        .output();
+    if let Ok(out) = probe {
+        if out.status.success() {
+            let mut cmd = Command::new("cargo");
+            cmd.arg("+nightly");
+            return Ok(cmd);
+        }
+    }
 
-    if !found {
-        let deps_dir = ebpf_dir
-            .join("target")
-            .join(target)
-            .join("release")
-            .join("deps");
-        for entry in std::fs::read_dir(&deps_dir)
-            .map_err(|e| format!("Cannot read deps dir {deps_dir:?}: {e}"))?
-        {
-            let entry = entry.map_err(|e| format!("Cannot read entry: {e}"))?;
-            let path = entry.path();
-            if let Some(ext) = path.extension() {
-                if ext == "o" || ext == "rlib" {
-                    let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                    if name.starts_with("network_monitor_ebpf") {
-                        std::fs::copy(&path, dst)
-                            .map_err(|e| format!("Failed to copy {:?} to {:?}: {e}", path, dst))?;
-                        break;
+    // 2) Try `rustup run nightly cargo`
+    let probe = Command::new("rustup")
+        .args(["run", "nightly", "cargo", "build", "--version"])
+        .output();
+    if let Ok(out) = probe {
+        if out.status.success() {
+            let mut cmd = Command::new("rustup");
+            cmd.args(["run", "nightly", "cargo"]);
+            return Ok(cmd);
+        }
+    }
+
+    // 3) Scan rustup toolchains directory
+    if let Ok(home) = std::env::var("RUSTUP_HOME")
+        .or_else(|_| std::env::var("HOME").map(|h| format!("{h}/.rustup")))
+    {
+        let tc = Path::new(&home).join("toolchains");
+        if let Ok(entries) = std::fs::read_dir(&tc) {
+            for entry in entries.flatten() {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if name.contains("nightly") {
+                    let cargo = entry.path().join("bin").join("cargo");
+                    if cargo.exists() {
+                        let probe = Command::new(&cargo)
+                            .arg("build")
+                            .arg("--version")
+                            .output();
+                        if let Ok(out) = probe {
+                            if out.status.success() {
+                                return Ok(Command::new(cargo));
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    if !found {
-        return Err("No eBPF artifact found in deps dir".into());
+    // 4) Legacy hardcoded path (local dev fallback)
+    let legacy = PathBuf::from(
+        "/home/grigio/Code/sandbox-bwrap-nix/sandbox-home/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu",
+    );
+    let legacy_cargo = legacy.join("bin").join("cargo");
+    if legacy_cargo.exists() {
+        return Ok(Command::new(legacy_cargo));
     }
 
-    eprintln!("Info: eBPF programs built successfully");
-    Ok(())
+    Err("Cannot locate nightly Rust toolchain. Install it with: rustup toolchain install nightly && rustup target add bpfel-unknown-none --toolchain nightly && cargo install bpf-linker".into())
+}
+
+fn try_build_ebpf(dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    let ebpf_dir = Path::new("network-monitor-ebpf");
+    let target = "bpfel-unknown-none";
+
+    run_nightly_cargo(
+        &[
+            "build",
+            "--release",
+            "--target",
+            target,
+            "-Z",
+            "build-std=core",
+        ],
+        ebpf_dir,
+    )?;
+
+    let binary = ebpf_dir
+        .join("target")
+        .join(target)
+        .join("release")
+        .join("network-monitor-ebpf");
+
+    if binary.exists() {
+        std::fs::copy(&binary, dst)
+            .map_err(|e| format!("Failed to copy {binary:?}: {e}"))?;
+        eprintln!("Info: eBPF programs built successfully");
+        return Ok(());
+    }
+
+    let deps_dir = ebpf_dir
+        .join("target")
+        .join(target)
+        .join("release")
+        .join("deps");
+    for entry in std::fs::read_dir(&deps_dir)
+        .map_err(|e| format!("Cannot read deps dir {deps_dir:?}: {e}"))?
+    {
+        let entry = entry.map_err(|e| format!("Cannot read entry: {e}"))?;
+        let path = entry.path();
+        if let Some(ext) = path.extension() {
+            if ext == "o" || ext == "rlib" {
+                let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                if name.starts_with("network_monitor_ebpf") {
+                    std::fs::copy(&path, dst)
+                        .map_err(|e| format!("Failed to copy {path:?} to {dst:?}: {e}"))?;
+                    eprintln!("Info: eBPF programs built successfully");
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    Err("No eBPF artifact found in build output".into())
 }
