@@ -1,5 +1,6 @@
 # Rust
 /target/
+network-monitor-ebpf/target/
 **/*.rs.bk
 
 # IDE
