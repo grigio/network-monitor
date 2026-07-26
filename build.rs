@@ -1,11 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::Command;
 
 fn main() {
     let out_dir = std::env::var("OUT_DIR").unwrap();
     let dst = Path::new(&out_dir).join("network-monitor-ebpf");
 
-    try_build_ebpf(&dst).expect("Failed to build eBPF programs (required)");
+    if let Err(e) = try_build_ebpf(&dst) {
+        eprintln!("Warning: {e}");
+        eprintln!("Warning: eBPF programs not built; will skip eBPF tracing at runtime");
+        std::fs::write(&dst, [0u8; 4]).ok();
+    }
 }
 
 fn run_nightly_cargo(args: &[&str], ebpf_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
@@ -72,15 +76,6 @@ fn find_nightly_cargo() -> Result<Command, Box<dyn std::error::Error>> {
                 }
             }
         }
-    }
-
-    // 4) Legacy hardcoded path (local dev fallback)
-    let legacy = PathBuf::from(
-        "/home/grigio/Code/sandbox-bwrap-nix/sandbox-home/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu",
-    );
-    let legacy_cargo = legacy.join("bin").join("cargo");
-    if legacy_cargo.exists() {
-        return Ok(Command::new(legacy_cargo));
     }
 
     Err("Cannot locate nightly Rust toolchain. Install it with: rustup toolchain install nightly && rustup target add bpfel-unknown-none --toolchain nightly && cargo install bpf-linker".into())

@@ -77,11 +77,14 @@ impl EbpfMonitor {
     }
 
     fn load_and_attach() -> Result<Self> {
-        let mut bpf = aya::Ebpf::load(aya::include_bytes_aligned!(concat!(
-            env!("OUT_DIR"),
-            "/network-monitor-ebpf"
-        )))
-        .map_err(|e| {
+        let ebpf_bytes: &[u8] =
+            aya::include_bytes_aligned!(concat!(env!("OUT_DIR"), "/network-monitor-ebpf"));
+        if ebpf_bytes.len() <= 4 {
+            return Err(NetworkMonitorError::EbpfNotAvailable(
+                "eBPF programs were not compiled (requires nightly Rust + bpf-linker)".to_string(),
+            ));
+        }
+        let mut bpf = aya::Ebpf::load(ebpf_bytes).map_err(|e| {
             NetworkMonitorError::EbpfLoadError(format!("Failed to load eBPF object: {e}"))
         })?;
 
