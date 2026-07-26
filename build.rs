@@ -62,10 +62,7 @@ fn find_nightly_cargo() -> Result<Command, Box<dyn std::error::Error>> {
                 if name.contains("nightly") {
                     let cargo = entry.path().join("bin").join("cargo");
                     if cargo.exists() {
-                        let probe = Command::new(&cargo)
-                            .arg("build")
-                            .arg("--version")
-                            .output();
+                        let probe = Command::new(&cargo).arg("build").arg("--version").output();
                         if let Ok(out) = probe {
                             if out.status.success() {
                                 return Ok(Command::new(cargo));
@@ -112,8 +109,7 @@ fn try_build_ebpf(dst: &Path) -> Result<(), Box<dyn std::error::Error>> {
         .join("network-monitor-ebpf");
 
     if binary.exists() {
-        std::fs::copy(&binary, dst)
-            .map_err(|e| format!("Failed to copy {binary:?}: {e}"))?;
+        std::fs::copy(&binary, dst).map_err(|e| format!("Failed to copy {binary:?}: {e}"))?;
         eprintln!("Info: eBPF programs built successfully");
         return Ok(());
     }
