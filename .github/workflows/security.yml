@@ -94,6 +94,11 @@ jobs:
       with:
         components: rustfmt, clippy
         
+    - name: Install nightly Rust + bpf-linker
+      run: |
+        rustup toolchain install nightly
+        cargo install bpf-linker
+        
     - name: Cache cargo registry
       uses: actions/cache@v3
       with:
