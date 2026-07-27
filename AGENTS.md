@@ -194,54 +194,123 @@ glib::spawn_future_local(async move {
 - Consider `once_cell::sync::Lazy` for global state
 - Implement `Default` and `Clone` for complex types
 
-## Development Commands
-```bash
-# Build and run (eBPF backend requires nightly + bpf-linker)
-cargo run                    # GTK4 version
-cargo run --bin nmt          # TUI version
-cargo build --release        # Release build
+## Building
 
-# Prerequisites for eBPF build
+### Prerequisites
+
+```bash
+# Rust nightly (for eBPF compilation)
 rustup toolchain install nightly
+rustup component add rust-src --toolchain nightly
 cargo install bpf-linker
 
-# Build eBPF programs manually — use this approach when build.rs fails.
-# The target bpfel-unknown-none has NO prebuilt rustup artifacts,
-# so rustup target add will fail. Install rust-src + build-std instead:
-rustup component add rust-src --toolchain nightly
-cargo +nightly build --release --target bpfel-unknown-none -Z build-std=core \
-  --manifest-path network-monitor-ebpf/Cargo.toml
+# System libraries (Debian/Ubuntu)
+sudo apt-get install -y pkg-config libglib2.0-dev libgtk-4-dev libadwaita-1-dev \
+  libpango1.0-dev libgdk-pixbuf-2.0-dev libgraphene-1.0-dev libcairo2-dev libharfbuzz-dev
+```
 
-# If GTK4 deps require a newer rustc than default stable, use a specific toolchain:
-rustup toolchain install 1.92
-cargo +1.92 build --release
+### Build Commands
 
-# After manual eBPF build, the build.rs placeholder (4 bytes) must be replaced
-# with the real eBPF binary. Find the latest build output dir and copy:
-LATEST=$(ls -td target/release/build/network-monitor-*/out 2>/dev/null | head -1)
-cp target/bpfel-unknown-none/release/network-monitor-ebpf "$LATEST/"
-cargo build --release   # re-link with real eBPF
+| Command | Description |
+|---|---|
+| `cargo +nightly build` | Build GTK + TUI binaries (debug) |
+| `cargo +nightly build --release` | Release build with optimizations |
+| `cargo +nightly build --bin nmt` | Build only TUI binary |
 
-# Code quality
-cargo fmt                    # Format code
-cargo clippy -- -D warnings  # Lint with strict warnings
-cargo test                   # Run tests
+The `build.rs` script automatically compiles eBPF programs when using nightly. If you see `eBPF programs were not compiled` at runtime, the `build.rs` probe failed — this is a known bug fixed by using `cargo --version` instead of `cargo build --version` (see pitfalls below).
 
-# Dependency management
-cargo update                 # Update dependencies
-cargo outdated               # Check for outdated dependencies
-cargo audit                  # Security audit
-cargo deny check             # License and dependency checks
+## Running
 
-# Installation
-./scripts/install.sh         # Local install
-sudo ./scripts/install.sh    # System-wide install
+### Run as root (simple, not recommended)
+
+```bash
+sudo ./target/debug/network-monitor   # GTK
+sudo ./target/debug/nmt               # TUI
+```
+
+### Run as normal user (recommended)
+
+The app uses Linux capabilities (`CAP_BPF`, `CAP_NET_ADMIN`, `CAP_PERFMON`) so you can run it without full root:
+
+```bash
+# After each build, set file capabilities
+sudo setcap cap_bpf,cap_net_admin,cap_perfmon+ep target/debug/nmt
+./target/debug/nmt
+```
+
+**setcap is lost after `cargo build`** (binary gets replaced). To avoid reapplying, copy to a stable path:
+
+```bash
+cp target/debug/nmt ~/bin/nmt
+sudo setcap cap_bpf,cap_net_admin,cap_perfmon+ep ~/bin/nmt
+~/bin/nmt
+```
+
+### The `nosuid` filesystem trap
+
+Most Linux filesystems (including `ext4` with `nosuid` mount flag, and `/tmp`) **strip file capabilities**. Test your `target/` directory:
+
+```bash
+mount | grep "$(df target/ --output=target 2>/dev/null | tail -1)"
+# If "nosuid" appears, capabilities won't work!
+```
+
+Workaround — copy to a filesystem without `nosuid`, or bind-mount with `suid`:
+
+```bash
+# Option A: Copy to /usr/local/bin (usually suid)
+sudo cp target/debug/nmt /usr/local/bin/
+sudo setcap cap_bpf,cap_net_admin,cap_perfmon+ep /usr/local/bin/nmt
+/usr/local/bin/nmt
+
+# Option B: Bind-mount a suid temp directory
+sudo mkdir -p /tmp/nosuid
+sudo mount --bind /tmp /tmp/nosuid
+sudo mount -o remount,suid /tmp/nosuid
+cp target/debug/nmt /tmp/nosuid/
+sudo setcap cap_bpf,cap_net_admin,cap_perfmon+ep /tmp/nosuid/nmt
+/tmp/nosuid/nmt
+```
+
+### Kernel `unprivileged_bpf_disabled` check
+
+If setcap works but eBPF still fails at runtime:
+
+```bash
+sysctl kernel.unprivileged_bpf_disabled
+# If 2 → kernel ignores file capabilities entirely
+sudo sysctl -w kernel.unprivileged_bpf_disabled=0
+```
+
+## Code Quality
+
+```bash
+cargo +nightly fmt --all -- --check   # Format check
+cargo +nightly clippy --all-targets -- -D warnings
+cargo +nightly test                   # Run tests
+cargo +nightly build --release        # Final build check
 
 # before commit run
-cargo outdated
-cargo clippy --all-targets -- -D warnings
 cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test
 cargo build
+```
+
+## Installation
+
+```bash
+./scripts/install.sh         # Local install
+sudo ./scripts/install.sh    # System-wide install
+```
+
+## Dependency Management
+
+```bash
+cargo update                 # Update dependencies
+cargo outdated               # Check for outdated deps
+cargo audit                  # Security audit
+cargo deny check             # License checks
 ```
 
 ## Critical Pitfalls
@@ -353,27 +422,19 @@ modelbutton:hover {
 ## Implementation Details
 
 ### Network Connection Monitoring
-The application supports two backends for monitoring network connections:
+The app uses a **single eBPF-based backend**:
 
-#### Default Backend: /proc/net Parsing (ProcMonitor)
-1. **Direct `/proc/net` parsing**: Reads from `/proc/net/tcp`, `/proc/net/tcp6`, `/proc/net/udp`, and `/proc/net/udp6`
-2. **Inode-based process mapping**: Maps socket inodes to processes via `/proc/*/fd` for accurate PID identification
-3. **Process information extraction**: Gets process names from `/proc/[pid]/status` and command lines from `/proc/[pid]/cmdline`
-4. **I/O statistics**: Reads real-time I/O data from `/proc/[pid]/io` for TX/RX rate calculations
-
-#### Optional Backend: eBPF Tracing (EbpfMonitor)
 1. **Kernel-level kprobes**: Traces `tcp_v4_connect`, `tcp_v6_connect`, `tcp_close`, and `inet_csk_accept`
-2. **Direct process identification**: Uses `bpf_get_current_pid_tgid()` at the probe point (no inode scanning)
+2. **Direct process identification**: Uses `bpf_get_current_pid_tgid()` at the probe point (no inode scanning needed)
 3. **PerfEventArray**: Events delivered to userspace via eBPF ring buffer
-4. **Rehydration on startup**: Falls back to `/proc/net` to discover pre-existing connections
-5. **TX/RX rates**: Still reads `/proc/[pid]/io` for rate calculation (shared logic)
+4. **Rehydration on startup**: Reads `/proc/net` to discover pre-existing connections before eBPF events arrive
+5. **TX/RX rates**: Reads `/proc/[pid]/io` for rate calculation at each poll interval
 
 ### Key Advantages Over External Tools
 - **No external dependencies**: Doesn't rely on `ss` or other system utilities
-- **More reliable**: Not affected by changes in external tool output format
-- **Better performance**: Direct file system access instead of spawning processes
-- **Dual strategy**: Falls back gracefully from eBPF to /proc/net
-- **Event-driven** (eBPF): Catches short-lived connections missed by polling
+- **Better performance**: Direct system calls instead of spawning processes
+- **Event-driven**: Catches short-lived connections missed by polling-based tools
+- **Direct PID**: No inode scanning or process tree traversal for new connections
 
 ## Performance Tips
 - Use `glib::idle_add_once()` for non-critical UI updates
