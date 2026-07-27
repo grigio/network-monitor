@@ -7,13 +7,13 @@ exclude = ["network-monitor-ebpf"]
 resolver = "2"
 
 [workspace.package]
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 
 [package]
 name = "network-monitor"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Luigi Maselli <grigio.org@gmail.com>"]
