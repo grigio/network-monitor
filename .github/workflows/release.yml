@@ -97,8 +97,9 @@ jobs:
         run: |
           mkdir -p release
           cp target/${{ matrix.target }}/release/network-monitor release/
-          strip release/network-monitor || true
-          tar -czf network-monitor-${{ matrix.arch }}.tar.gz -C release network-monitor
+          cp target/${{ matrix.target }}/release/nmt release/
+          strip release/network-monitor release/nmt || true
+          tar -czf network-monitor-${{ matrix.arch }}.tar.gz -C release network-monitor nmt
           
       - name: Upload release asset
         uses: softprops/action-gh-release@v1
