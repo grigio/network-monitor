@@ -314,15 +314,18 @@ impl EbpfMonitor {
 
 impl ConnectionMonitor for EbpfMonitor {
     fn get_connections(&self) -> Result<Vec<Connection>> {
-        let cache = self
+        let mut cache = self
             .connections
             .lock()
             .map_err(|e| NetworkMonitorError::MutexPoison(format!("{e}")))?;
         let now = Instant::now();
+        cache.retain(|_, cs| now.duration_since(cs.last_seen) < Duration::from_secs(60));
         let mut result: Vec<Connection> = cache
-            .values()
-            .filter(|cs| now.duration_since(cs.last_seen) < Duration::from_secs(60))
-            .map(|cs| cs.connection.clone())
+            .values_mut()
+            .map(|cs| {
+                cs.last_seen = now;
+                cs.connection.clone()
+            })
             .collect();
         result.sort_by_key(|b| std::cmp::Reverse(b.rx_rate));
         Ok(result)
@@ -603,5 +606,78 @@ fn get_process_cmdline(pid: &str) -> String {
         content.replace('\0', " ").trim().to_string()
     } else {
         String::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_get_connections_refreshes_last_seen() {
+        let connections: Arc<Mutex<HashMap<u64, ConnectionState>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+
+        {
+            let mut map = connections.lock().unwrap();
+            map.insert(
+                1,
+                ConnectionState {
+                    connection: Connection {
+                        protocol: "tcp".into(),
+                        state: "ESTABLISHED".into(),
+                        local: "127.0.0.1:4000".into(),
+                        remote: "10.0.0.1:80".into(),
+                        program: "curl".into(),
+                        pid: "1234".into(),
+                        command: "/usr/bin/curl".into(),
+                        rx_rate: 0,
+                        tx_rate: 0,
+                    },
+                    last_seen: Instant::now() - Duration::from_secs(90),
+                },
+            );
+            map.insert(
+                2,
+                ConnectionState {
+                    connection: Connection {
+                        protocol: "tcp".into(),
+                        state: "ESTABLISHED".into(),
+                        local: "127.0.0.1:4001".into(),
+                        remote: "10.0.0.2:443".into(),
+                        program: "firefox".into(),
+                        pid: "5678".into(),
+                        command: "/usr/bin/firefox".into(),
+                        rx_rate: 0,
+                        tx_rate: 0,
+                    },
+                    last_seen: Instant::now() - Duration::from_secs(30),
+                },
+            );
+        }
+
+        let now_before = Instant::now();
+        let _ = { connections.lock().unwrap().values().map(|cs| cs.last_seen).collect::<Vec<_>>() };
+
+        let mut cache = connections.lock().unwrap();
+        let now = Instant::now();
+        cache.retain(|_, cs| now.duration_since(cs.last_seen) < Duration::from_secs(60));
+        let result: Vec<Connection> = cache
+            .values_mut()
+            .map(|cs| {
+                cs.last_seen = now;
+                cs.connection.clone()
+            })
+            .collect();
+
+        assert_eq!(result.len(), 1, "expired entry (90s old) should be removed");
+        assert_eq!(result[0].pid, "5678", "remaining entry should be the recent one");
+
+        for cs in cache.values() {
+            assert!(
+                cs.last_seen >= now_before,
+                "last_seen should be refreshed to recent time"
+            );
+        }
     }
 }

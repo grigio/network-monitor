@@ -205,9 +205,22 @@ cargo build --release        # Release build
 rustup toolchain install nightly
 cargo install bpf-linker
 
-# Build eBPF programs manually (if build.rs fails)
+# Build eBPF programs manually — use this approach when build.rs fails.
+# The target bpfel-unknown-none has NO prebuilt rustup artifacts,
+# so rustup target add will fail. Install rust-src + build-std instead:
+rustup component add rust-src --toolchain nightly
 cargo +nightly build --release --target bpfel-unknown-none -Z build-std=core \
-  -p network-monitor-ebpf
+  --manifest-path network-monitor-ebpf/Cargo.toml
+
+# If GTK4 deps require a newer rustc than default stable, use a specific toolchain:
+rustup toolchain install 1.92
+cargo +1.92 build --release
+
+# After manual eBPF build, the build.rs placeholder (4 bytes) must be replaced
+# with the real eBPF binary. Find the latest build output dir and copy:
+LATEST=$(ls -td target/release/build/network-monitor-*/out 2>/dev/null | head -1)
+cp target/bpfel-unknown-none/release/network-monitor-ebpf "$LATEST/"
+cargo build --release   # re-link with real eBPF
 
 # Code quality
 cargo fmt                    # Format code
@@ -249,8 +262,14 @@ cargo build
 
 ### eBPF-Specific Pitfalls
 - **eBPF requires nightly Rust**: The `network-monitor-ebpf` crate uses `#![no_std]` and must be compiled with `rustup toolchain install nightly` and `bpf-linker`
+- **`bpfel-unknown-none` target has NO prebuilt artifacts**: `rustup target add bpfel-unknown-none` will fail with "no prebuilt artifacts available". You must build from source using `rustup component add rust-src --toolchain nightly` then `cargo +nightly build --release --target bpfel-unknown-none -Z build-std=core`.
 - **Kernel requirements**: eBPF kprobes need Linux 4.1+. CO-RE/BTF support needs 5.2+. Granular capabilities need 5.8+.
 - **Permissions**: eBPF requires `CAP_BPF` + `CAP_NET_ADMIN` + `CAP_PERFMON` (or `CAP_SYS_ADMIN` on kernels <5.8). The app exits with a setup message when these are missing.
+- **`build.rs` silently falls back to 4-byte placeholder**: If eBPF compilation fails (e.g., nightly or bpf-linker unavailable), `build.rs` writes a 4-byte placeholder file. The main build succeeds but eBPF is silently disabled at runtime. After manually compiling eBPF, you must either: (a) delete `target/` and rebuild, (b) copy the real eBPF binary into the latest `target/release/build/network-monitor-*/out/` directory then re-run `cargo build --release`, or (c) touch a source file to trigger a fresh build with the rebuilt eBPF already available.
+- **Toolchain version mismatch for GTK4 deps**: GTK4 crates (gtk4 0.11, libadwaita 0.9) require rustc 1.92+. If rustup's stable is older (e.g., 1.91.x), the build fails. Use `rustup toolchain install 1.92 && cargo +1.92 build --release`. Note that this changes the OUT_DIR hash, so build.rs runs fresh and may re-attempt eBPF compilation.
+- **rustup installation overrides system Rust**: On distributions with a system Rust (e.g., Arch Linux), installing rustup via the package manager adds it to PATH and shadows the system Rust. The rustup stable may be older than the system Rust (e.g., rustup 1.91 vs Arch 1.97), causing dependency version conflicts.
+- **`ConnectionState::last_seen` freshness**: The eBPF monitor stores a `last_seen: Instant` per connection, set only at insertion time. `get_connections()` filters out connections where `last_seen > 60s`, so all connections silently disappear after ~60 seconds if `last_seen` is not refreshed. Fix: `get_connections()` must update `last_seen = now` on every poll via `values_mut()`. See `src/services/ebpf_monitor.rs:get_connections()`.
+- **GTK/GDK portal warnings are harmless**: Messages like `Gdk-WARNING: Failed to read portal settings: Unable to open /proc/<pid>/root` and `Gtk-WARNING: Creating a portal monitor failed` appear when xdg-desktop-portal cannot access the process root namespace. These are non-fatal GTK internal warnings unrelated to eBPF or app functionality. They occur in sandboxed/container environments or when the portal daemon lacks permissions.
 - **Capability pitfalls running without sudo**:
   - **Filesystem `nosuid`**: Most Linux filesystems (including `ext4` with `nosuid` mount flag, and `/tmp`) strip file capabilities. Check with `mount | grep nosuid`. Workaround: copy binary to a filesystem without `nosuid`, or bind-mount with `suid`.
     ```
@@ -270,6 +289,7 @@ cargo build
     | `CAP_PERFMON` | 38 | `1 << 38` |
     | `CAP_BPF` | 39 | `1 << 39` |
     These are defined in `src/services/ebpf_monitor.rs:check_ebpf_availability()`.
+  - **setcap is lost after cargo build**: Running `cargo build` or `cargo run` replaces the binary in `target/`, removing file capabilities. Always re-apply setcap after any build. Use a release build + copy to a stable path to avoid this.
 - **The eBPF build is required**: The `build.rs` script compiles eBPF programs at build time. Nightly Rust and `bpf-linker` are mandatory prerequisites.
 - **eBPF kernel programs use `#[repr(C)]` types**: Shared types in `network-monitor-common` must remain `no_std` compatible for the eBPF side.
 
@@ -361,3 +381,4 @@ The application supports two backends for monitoring network connections:
 - Keep dependencies updated with `cargo update` and check outdated packages with `cargo outdated`
 - Enable the `ebpf` feature for event-driven monitoring; the app degrades gracefully if unavailable
 - Monitor backend selection: run with `RUST_LOG=info` to see which monitor backend is active
+8. **Commit messages**: Use conventional commits (e.g., `fix:`, `feat:`, `chore:`, `docs:`, `refactor:`). Describe what changed and why in the commit body.

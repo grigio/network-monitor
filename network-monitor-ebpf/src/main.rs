@@ -208,7 +208,7 @@ pub fn kretprobe_inet_csk_accept(ctx: RetProbeContext) -> u32 {
 }
 
 unsafe fn try_kretprobe_inet_csk_accept(ctx: RetProbeContext) -> Result<u32, u32> {
-    let new_sk_ptr: u64 = ctx.ret().ok_or(1u32)?;
+    let new_sk_ptr: u64 = ctx.ret();
     if new_sk_ptr == 0 {
         return Ok(0);
     }
