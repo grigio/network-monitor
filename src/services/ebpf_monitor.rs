@@ -1,11 +1,10 @@
 use crate::error::{NetworkMonitorError, Result};
 use crate::models::{Connection, ProcessIO};
 use crate::services::connection_monitor::ConnectionMonitor;
-use aya::maps::perf::{PerfEventArray, PerfEventArrayBuffer};
-use aya::maps::Map;
+use aya::maps::perf::{PerfEvent, PerfEventArray, PerfEventArrayBuffer};
+use aya::maps::MapData;
 use aya::programs::KProbe;
 use aya::util::online_cpus;
-use bytes::BytesMut;
 use network_monitor_common::{
     EbpfEvent, TcpAcceptEvent, TcpCloseEvent, TcpConnectEvent, AF_INET, AF_INET6,
     EVENT_TYPE_ACCEPT, EVENT_TYPE_CLOSE, EVENT_TYPE_CONNECT,
@@ -137,26 +136,22 @@ impl EbpfMonitor {
         connections: Arc<Mutex<HashMap<u64, ConnectionState>>>,
         stopped: Arc<AtomicBool>,
     ) -> Option<thread::JoinHandle<()>> {
-        let ev_map = match bpf.take_map("EVENTS") {
+        let map = match bpf.take_map("EVENTS") {
             Some(m) => m,
             None => {
                 eprintln!("Warning: Map 'EVENTS' not found");
                 return None;
             }
         };
-        // Leak the map so the event reader thread can hold &'static mut references
-        let ev_map: &'static mut Map = Box::leak(Box::new(ev_map));
-        let mut perf_array: PerfEventArray<&'static mut aya::maps::MapData> =
-            match PerfEventArray::try_from(ev_map) {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("Warning: Failed to create PerfEventArray: {e}");
-                    eprintln!(
-                        "eBPF events will not be consumed. Connections from rehydration only."
-                    );
-                    return None;
-                }
-            };
+
+        let mut perf_array: PerfEventArray<MapData> = match PerfEventArray::try_from(map) {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("Warning: Failed to create PerfEventArray: {e}");
+                eprintln!("eBPF events will not be consumed. Connections from rehydration only.");
+                return None;
+            }
+        };
 
         let cpus = match online_cpus() {
             Ok(c) => c,
@@ -167,8 +162,7 @@ impl EbpfMonitor {
             }
         };
 
-        let mut buffers: Vec<(u32, PerfEventArrayBuffer<&'static mut aya::maps::MapData>)> =
-            Vec::new();
+        let mut buffers: Vec<(u32, PerfEventArrayBuffer<MapData>)> = Vec::new();
         for cpu_id in cpus {
             match perf_array.open(cpu_id, Some(16)) {
                 Ok(buf) => buffers.push((cpu_id, buf)),
@@ -186,20 +180,24 @@ impl EbpfMonitor {
         let handle = thread::Builder::new()
             .name("ebpf-event-reader".into())
             .spawn(move || {
-                let mut out_bufs = [BytesMut::with_capacity(8192)];
-
                 while !stopped.load(Ordering::Relaxed) {
                     for (_cpu_id, buf) in &mut buffers {
-                        match buf.read_events(&mut out_bufs) {
-                            Ok(events) => {
-                                if events.read > 0 {
-                                    Self::process_events(&out_bufs[0], &connections);
-                                }
+                        buf.for_each(|event: PerfEvent<'_>| match event {
+                            PerfEvent::Sample { head, tail } => {
+                                let data = if tail.is_empty() {
+                                    head.to_vec()
+                                } else {
+                                    let mut v = Vec::with_capacity(head.len() + tail.len());
+                                    v.extend_from_slice(head);
+                                    v.extend_from_slice(tail);
+                                    v
+                                };
+                                Self::process_events(&data, &connections);
                             }
-                            Err(e) => {
-                                eprintln!("Error reading perf events: {e}");
+                            PerfEvent::Lost { count } => {
+                                eprintln!("Lost {count} perf events");
                             }
-                        }
+                        });
                     }
                     thread::sleep(Duration::from_millis(5));
                 }

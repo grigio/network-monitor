@@ -7,9 +7,7 @@ edition = "2021"
 license = "GPL-3.0-or-later"
 
 [dependencies]
-aya-ebpf = "0.1"
-aya-ebpf-bindings = "0.1"
-aya-log-ebpf = "0.1"
+aya-ebpf = "0.2"
 network-monitor-common = { path = "../network-monitor-common" }
 
 [[bin]]
