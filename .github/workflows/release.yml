@@ -41,7 +41,7 @@ jobs:
           
       - name: Create Release
         id: create_release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -50,6 +50,7 @@ jobs:
           body: ${{ steps.changelog.outputs.CHANGELOG }}
           draft: false
           prerelease: false
+          allowUpdates: true
 
   build-release:
     name: Build release binaries
@@ -102,8 +103,9 @@ jobs:
           tar -czf network-monitor-${{ matrix.arch }}.tar.gz -C release network-monitor nmt
           
       - name: Upload release asset
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: ./network-monitor-${{ matrix.arch }}.tar.gz
+          allowUpdates: true
