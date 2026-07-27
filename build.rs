@@ -32,7 +32,7 @@ fn run_nightly_cargo(args: &[&str], ebpf_dir: &Path) -> Result<(), Box<dyn std::
 fn find_nightly_cargo() -> Result<Command, Box<dyn std::error::Error>> {
     // 1) Try `cargo +nightly` (rustup proxy)
     let probe = Command::new("cargo")
-        .args(["+nightly", "build", "--version"])
+        .args(["+nightly", "--version"])
         .output();
     if let Ok(out) = probe {
         if out.status.success() {
@@ -44,7 +44,7 @@ fn find_nightly_cargo() -> Result<Command, Box<dyn std::error::Error>> {
 
     // 2) Try `rustup run nightly cargo`
     let probe = Command::new("rustup")
-        .args(["run", "nightly", "cargo", "build", "--version"])
+        .args(["run", "nightly", "cargo", "--version"])
         .output();
     if let Ok(out) = probe {
         if out.status.success() {
@@ -66,7 +66,7 @@ fn find_nightly_cargo() -> Result<Command, Box<dyn std::error::Error>> {
                 if name.contains("nightly") {
                     let cargo = entry.path().join("bin").join("cargo");
                     if cargo.exists() {
-                        let probe = Command::new(&cargo).arg("build").arg("--version").output();
+                        let probe = Command::new(&cargo).arg("--version").output();
                         if let Ok(out) = probe {
                             if out.status.success() {
                                 return Ok(Command::new(cargo));

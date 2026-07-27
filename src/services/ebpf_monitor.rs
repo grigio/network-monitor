@@ -269,8 +269,18 @@ impl EbpfMonitor {
                 ("N/A".to_string(), String::new())
             };
 
+            let key = if let Some(ref pid_str) = pid {
+                if let Ok(pid_num) = pid_str.parse::<u32>() {
+                    sock_key(pid_num, entry.remote_port as u64)
+                } else {
+                    entry.inode
+                }
+            } else {
+                entry.inode
+            };
+
             guard.insert(
-                entry.inode,
+                key,
                 ConnectionState {
                     connection: Connection {
                         protocol: entry.protocol,
@@ -418,14 +428,15 @@ fn tcp_state_string(state: u8) -> String {
 
 fn connection_from_connect(ev: &TcpConnectEvent) -> Connection {
     let protocol = if ev.family == AF_INET6 { "tcp6" } else { "tcp" };
+    let pid_str = ev.pid.to_string();
     Connection {
         protocol: protocol.to_string(),
         state: "ESTABLISHED".to_string(),
         local: sock_addr_to_string(&ev.saddr, ev.family, ev.sport),
         remote: sock_addr_to_string(&ev.daddr, ev.family, ev.dport),
-        program: "N/A".to_string(),
-        pid: ev.pid.to_string(),
-        command: String::new(),
+        program: get_process_name(&pid_str),
+        pid: pid_str.clone(),
+        command: get_process_cmdline(&pid_str),
         rx_rate: 0,
         tx_rate: 0,
     }
@@ -433,14 +444,15 @@ fn connection_from_connect(ev: &TcpConnectEvent) -> Connection {
 
 fn connection_from_accept(ev: &TcpAcceptEvent) -> Connection {
     let protocol = if ev.family == AF_INET6 { "tcp6" } else { "tcp" };
+    let pid_str = ev.pid.to_string();
     Connection {
         protocol: protocol.to_string(),
         state: "ESTABLISHED".to_string(),
         local: sock_addr_to_string(&ev.saddr, ev.family, ev.sport),
         remote: sock_addr_to_string(&ev.daddr, ev.family, ev.dport),
-        program: "N/A".to_string(),
-        pid: ev.pid.to_string(),
-        command: String::new(),
+        program: get_process_name(&pid_str),
+        pid: pid_str.clone(),
+        command: get_process_cmdline(&pid_str),
         rx_rate: 0,
         tx_rate: 0,
     }
@@ -466,6 +478,7 @@ struct ProcNetEntry {
     protocol: String,
     local: String,
     remote: String,
+    remote_port: u16,
     state: String,
 }
 
@@ -518,6 +531,7 @@ fn parse_proc_net_tcp(path: &str, protocol: &str, family: u16) -> Vec<ProcNetEnt
             protocol: protocol.to_string(),
             local,
             remote,
+            remote_port,
             state,
         });
     }
@@ -657,7 +671,14 @@ mod tests {
         }
 
         let now_before = Instant::now();
-        let _ = { connections.lock().unwrap().values().map(|cs| cs.last_seen).collect::<Vec<_>>() };
+        let _ = {
+            connections
+                .lock()
+                .unwrap()
+                .values()
+                .map(|cs| cs.last_seen)
+                .collect::<Vec<_>>()
+        };
 
         let mut cache = connections.lock().unwrap();
         let now = Instant::now();
@@ -671,7 +692,10 @@ mod tests {
             .collect();
 
         assert_eq!(result.len(), 1, "expired entry (90s old) should be removed");
-        assert_eq!(result[0].pid, "5678", "remaining entry should be the recent one");
+        assert_eq!(
+            result[0].pid, "5678",
+            "remaining entry should be the recent one"
+        );
 
         for cs in cache.values() {
             assert!(
