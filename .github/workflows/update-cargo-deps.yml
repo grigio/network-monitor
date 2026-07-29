@@ -29,7 +29,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Update workspace Cargo.toml deps
-        run: cargo upgrade --workspace
+        run: cargo upgrade
 
       - name: Update workspace Cargo.lock
         run: cargo update --workspace
