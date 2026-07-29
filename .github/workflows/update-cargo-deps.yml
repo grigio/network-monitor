@@ -1,0 +1,82 @@
+name: update-cargo-deps
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        run: rustup toolchain install stable --component rust-src
+
+      - name: Install cargo-edit and cargo-deny
+        run: |
+          cargo install cargo-edit --locked
+          cargo install cargo-deny --locked
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Update workspace Cargo.toml deps
+        run: cargo upgrade --workspace
+
+      - name: Update workspace Cargo.lock
+        run: cargo update --workspace
+
+      - name: Update eBPF Cargo.toml deps
+        working-directory: network-monitor-ebpf
+        run: cargo upgrade
+
+      - name: Update eBPF Cargo.lock
+        working-directory: network-monitor-ebpf
+        run: cargo update
+
+      - name: Validate build and deny rules
+        run: |
+          cargo check --workspace
+          cargo deny check
+
+      - name: Commit changes
+        run: |
+          git add -A
+          git diff --staged --quiet || git commit -m "chore: weekly cargo dependency update"
+
+      - name: Push branch
+        env:
+          GIT_TERMINAL_PROMPT: "0"
+        run: |
+          git remote set-url origin https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git
+          git branch -f auto/update-cargo-deps
+          git push origin auto/update-cargo-deps --force
+
+      - name: Create PR
+        id: create-pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          PR_URL=$(gh pr create \
+            --base main \
+            --head auto/update-cargo-deps \
+            --title "chore: weekly cargo dependency update" \
+            --body "Automated weekly \`cargo upgrade\` and \`cargo update\`.
+
+            - All dependencies bumped to latest compatible versions.
+            - Validated with \`cargo check\`.") || true
+          echo "pr-url=$PR_URL" >> "$GITHUB_OUTPUT"
+
+      - name: Merge PR
+        if: steps.create-pr.outputs.pr-url != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr merge --squash "${{ steps.create-pr.outputs.pr-url }}" || true
