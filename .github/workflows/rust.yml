@@ -8,12 +8,13 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_BUILD_WARNINGS: deny
 
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install nightly Rust + bpf-linker
         run: |
           rustup toolchain install nightly
@@ -31,6 +32,8 @@ jobs:
             libgraphene-1.0-dev \
             libcairo2-dev \
             libharfbuzz-dev
+      - name: Verify Cargo.lock is fresh
+        run: cargo fetch --locked
       - name: Set PKG_CONFIG_PATH
         run: |
           echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
