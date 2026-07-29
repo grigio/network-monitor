@@ -56,10 +56,15 @@ jobs:
           cargo check --workspace
           cargo deny check
 
+      - uses: DeterminateSystems/nix-installer-action@v16
+
+      - name: Update flake.lock
+        run: nix flake update
+
       - name: Commit changes
         run: |
           git add -A
-          git diff --staged --quiet || git commit -m "chore: weekly cargo dependency update"
+          git diff --staged --quiet || git commit -m "chore: weekly cargo and flake dependency update"
 
       - name: Push branch
         env:
@@ -76,10 +81,11 @@ jobs:
           PR_URL=$(gh pr create \
             --base master \
             --head auto/update-cargo-deps \
-            --title "chore: weekly cargo dependency update" \
-            --body "Automated weekly \`cargo upgrade\` and \`cargo update\`.
+            --title "chore: weekly cargo and flake dependency update" \
+            --body "Automated weekly \`cargo upgrade\`, \`cargo update\`, and \`nix flake update\`.
 
-            - All dependencies bumped to latest compatible versions.
+            - All cargo dependencies bumped to latest compatible versions.
+            - Flake inputs (nixpkgs, flake-utils) updated.
             - Validated with \`cargo check\`.") || true
           echo "pr-url=$PR_URL" >> "$GITHUB_OUTPUT"
 
