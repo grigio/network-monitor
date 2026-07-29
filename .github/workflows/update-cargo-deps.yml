@@ -34,6 +34,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
+      - name: Create working branch
+        run: git checkout -B auto/update-cargo-deps
+
       - name: Update workspace Cargo.toml deps
         run: cargo upgrade
 
@@ -72,7 +75,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR_URL=$(gh pr create \
-            --base main \
+            --base master \
             --head auto/update-cargo-deps \
             --title "chore: weekly cargo dependency update" \
             --body "Automated weekly \`cargo upgrade\` and \`cargo update\`.
