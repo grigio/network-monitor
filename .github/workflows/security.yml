@@ -92,8 +92,9 @@ jobs:
         
     - name: Install nightly Rust + bpf-linker
       run: |
-        rustup toolchain install nightly
-        cargo install bpf-linker
+        rustup toolchain install nightly --component rust-src
+        cargo install cargo-binstall --locked
+        cargo binstall bpf-linker --no-confirm
         
     - name: Cache cargo registry
       uses: Swatinem/rust-cache@v2
@@ -128,8 +129,9 @@ jobs:
       
     - name: Install nightly Rust + bpf-linker
       run: |
-        rustup toolchain install nightly
-        cargo install bpf-linker
+        rustup toolchain install nightly --component rust-src
+        cargo install cargo-binstall --locked
+        cargo binstall bpf-linker --no-confirm
         
     - name: Cache cargo registry
       uses: Swatinem/rust-cache@v2

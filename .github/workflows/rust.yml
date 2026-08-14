@@ -17,8 +17,9 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install nightly Rust + bpf-linker
         run: |
-          rustup toolchain install nightly
-          cargo install bpf-linker
+          rustup toolchain install nightly --component rust-src
+          cargo install cargo-binstall --locked
+          cargo binstall bpf-linker --no-confirm
       - name: Install deps
         run: |
           sudo apt-get update

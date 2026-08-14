@@ -628,7 +628,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_connections_refreshes_last_seen() {
+    fn get_connections_refreshes_last_seen() {
         let connections: Arc<Mutex<HashMap<u64, ConnectionState>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
