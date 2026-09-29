@@ -17,10 +17,14 @@ src/
 ├── main.rs                      # GTK4 application entry point
 ├── tui_main.rs                  # TUI application entry point
 ├── ui/                          # GTK4 UI components and widgets
+│   ├── window.rs                # Window, header, grid table, actions, monitoring loop
+│   ├── context_menu.rs          # Right-click menu: copy value/command, kill process
+│   └── styles.css               # Embedded CSS
 ├── models/                      # Data structures and state (shared)
 ├── services/                    # Business logic and system calls (shared)
 │   ├── connection_monitor.rs    # ConnectionMonitor trait + factory
 │   ├── ebpf_monitor.rs          # eBPF-based connection monitor
+│   ├── process_ops.rs           # kill_process / parse_pid (SIGTERM, SIGKILL via `nix`)
 │   └── resolver.rs              # DNS resolution
 ├── utils/                       # Helper functions (shared)
 ├── error.rs                     # Custom error types with thiserror
@@ -120,6 +124,26 @@ let monitor: Box<dyn ConnectionMonitor> = detect_best_monitor();
 let connections = monitor.get_connections()?;
 let (updated, current_io) = monitor.update_connection_rates(connections, &prev_io)?;
 ```
+
+### Row Actions (copy / kill process)
+
+Right-clicking a table row opens a `PopoverMenu` (`src/ui/context_menu.rs`):
+
+- `win.copy-cell` / `win.copy-command` copy the **live** cell text / command line
+- `win.kill-process` (also reachable with the `Delete` accel via `win.kill-selected`) shows an
+  `adw::AlertDialog` offering Terminate (`SIGTERM`) or Force Kill (`SIGKILL`)
+- The menu target is stored in `context_target` / `context_cell_text` because action closures only
+  receive the `ApplicationWindow`, never `&Rc<NetworkMonitorWindow>`
+- **Refresh is paused while the menu is open** (`update_connections` returns early when
+  `context_menu` is `Some`): the rows the menu acts upon must not be rebuilt or re-parented
+  underneath it. The slot is cleared in the popover's `connect_closed`
+- Killing a process owned by another user needs `CAP_KILL` (or root); failures are reported as
+  toasts instead of panicking
+- The TUI mirrors this with `k` / right-click → a centered confirm menu (`KillMenu` in
+  `src/tui_main.rs`)
+
+In the TUI, mouse events are handled (left click selects, right click opens the menu); the table
+area is stored in `App::table_area` during rendering so clicks can be mapped back to rows.
 
 ### Actions and Menus (GTK4 Guidelines)
 **IMPORTANT**: Always follow the official GTK4 actions and menus documentation at https://gtk-rs.org/gtk4-rs/stable/latest/book/actions.html#menus for implementing menus and actions.

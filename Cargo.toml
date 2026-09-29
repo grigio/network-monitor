@@ -7,13 +7,13 @@ exclude = ["network-monitor-ebpf"]
 resolver = "2"
 
 [workspace.package]
-version = "0.7.5"
+version = "0.7.6"
 edition = "2021"
 license = "GPL-3.0-or-later"
 
 [package]
 name = "network-monitor"
-version = "0.7.5"
+version = "0.7.6"
 edition = "2021"
 license = "GPL-3.0-or-later"
 authors = ["Luigi Maselli <grigio.org@gmail.com>"]
@@ -30,6 +30,7 @@ gio = { version = "0.22", default-features = false }
 serde = { version = "1", features = ["derive"], default-features = false }
 serde_json = { version = "1", features = ["std"], default-features = false }
 thiserror = { version = "2.0", default-features = false }
+nix = { version = "0.31", features = ["signal"], default-features = false }
 crossterm = { version = "0.29", features = ["event-stream", "events"], default-features = false }
 unicode-width = { version = "0.2.2", default-features = false }
 tui = { package = "ratatui", version = "0.30", features = ["crossterm"], default-features = false }

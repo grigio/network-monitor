@@ -13,6 +13,10 @@ A real-time network connection monitoring tool built with Rust and GTK4, display
 - **Real-time monitoring**: Continuously monitors active network connections
 - **I/O statistics**: Shows live upload/download rates for each connection
 - **Process identification**: Displays the program and PID associated with each connection
+- **Process actions**: Right-click a row to copy its value/command or to kill the process that
+  owns the connection (Terminate or Force Kill, with confirmation)
+- **Persistent selection**: The selected row keeps its highlight across refreshes and is shown in
+  the status strip
 - **Modern GTK4 UI**: Clean, responsive graphical interface with Libadwaita styling
 - **Terminal UI (TUI)**: Interactive terminal interface with the same monitoring capabilities
 - **Address resolution**: Simplifies common addresses (localhost, any, mDNS)
@@ -144,6 +148,15 @@ The application will open a GTK4 window displaying:
 - **RX**: Download rate calculated from process I/O statistics
 - **Path**: Full command path and arguments from `/proc/[pid]/cmdline`
 
+**Row actions**
+
+- **Left click**: select a row (also shown in the bottom strip)
+- **Right click**: open the context menu with *Copy Value*, *Copy Command* and
+  *Kill "process" (PID)*, which asks whether to Terminate (SIGTERM) or Force Kill (SIGKILL)
+- **Delete**: kill the currently selected row (same confirmation dialog)
+- **Ctrl+C**: copy the cell content
+- **Refresh button** in the header bar: update immediately (the list also refreshes every 3s)
+
 ### Terminal Interface (TUI)
 
 ![nmt tui of network-monitor](./nmt.png)
@@ -157,11 +170,15 @@ The TUI provides the same monitoring capabilities in an interactive terminal int
 
 **Key Controls:**
 - `q` - Quit the application
-- `r` - Manually refresh connections
+- `r` - Toggle hostname resolution
+- `R` - Refresh connections manually
 - `a` - Toggle auto-refresh (2-second intervals)
 - `↑/↓` - Navigate through connections
 - `←/→` - Scroll table horizontally
+- `k` / **right click** - Open the kill menu for a row (Terminate / Force Kill / Cancel)
 - `1-8` - Sort by columns (Process(ID), Protocol, Source, Destination, Status, TX, RX, Path)
+
+Mouse: left click selects a row, right click selects it and opens the kill menu.
 
 **Features:**
 - Real-time connection monitoring with auto-refresh

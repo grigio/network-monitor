@@ -1,6 +1,7 @@
 use crossterm::{
     event::{
         self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+        MouseButton, MouseEvent, MouseEventKind,
     },
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -8,6 +9,7 @@ use crossterm::{
 use error::Result;
 use models::Connection;
 use services::connection_monitor::ConnectionMonitor;
+use services::process_ops::{kill_process, parse_pid, KillSignal};
 use services::{detect_best_monitor, AddressResolver};
 use std::collections::HashMap;
 use std::env;
@@ -15,10 +17,10 @@ use std::io;
 use std::time::{Duration, Instant};
 use tui::{
     backend::CrosstermBackend,
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Row, Table, TableState},
+    widgets::{Block, Borders, Clear, Paragraph, Row, Table, TableState},
     Frame, Terminal,
 };
 use utils::formatter::Formatter;
@@ -59,6 +61,54 @@ impl LayoutCache {
     }
 }
 
+/// Menu opened with the right mouse button or `k`: it asks how to signal the
+/// process that owns the selected connection.
+#[derive(Debug, Clone)]
+struct KillMenu {
+    pid: String,
+    program: String,
+    /// Index into [`KillMenu::ITEMS`].
+    selected: usize,
+}
+
+impl KillMenu {
+    /// Number of selectable entries in the menu.
+    const COUNT: usize = 3;
+
+    fn items() -> [String; Self::COUNT] {
+        [
+            format!(
+                "{} ({})",
+                KillSignal::Term.description(),
+                KillSignal::Term.label()
+            ),
+            format!(
+                "{} ({})",
+                KillSignal::Force.description(),
+                KillSignal::Force.label()
+            ),
+            "Cancel".to_string(),
+        ]
+    }
+
+    fn new(conn: &Connection) -> Self {
+        Self {
+            pid: conn.pid.clone(),
+            program: conn.program.clone(),
+            selected: 0,
+        }
+    }
+
+    fn move_selection(&mut self, down: bool) {
+        let len = Self::COUNT;
+        self.selected = if down {
+            (self.selected + 1) % len
+        } else {
+            (self.selected + len - 1) % len
+        };
+    }
+}
+
 /// Application state for the TUI
 struct App {
     connections: Vec<Connection>,
@@ -75,6 +125,12 @@ struct App {
     last_render_time: Instant,
     render_count: usize,
     skip_next_render: bool,
+    /// Currently displayed kill menu, if any.
+    kill_menu: Option<KillMenu>,
+    /// Area of the table as drawn by the last frame, used for mouse hit tests.
+    table_area: Option<Rect>,
+    /// Transient status line (kill results, errors, hints).
+    status_message: Option<(String, Instant)>,
 }
 
 impl App {
@@ -94,6 +150,9 @@ impl App {
             last_render_time: Instant::now(),
             render_count: 0,
             skip_next_render: false,
+            kill_menu: None,
+            table_area: None,
+            status_message: None,
         };
         app.update_connections();
         app
@@ -213,6 +272,128 @@ impl App {
         self.resolver.set_resolve_hosts(!current_state);
         // Force refresh to update display with new resolver state
         self.update_connections();
+    }
+
+    fn set_status(&mut self, message: impl Into<String>) {
+        self.status_message = Some((message.into(), Instant::now()));
+    }
+
+    fn selected_connection(&self) -> Option<&Connection> {
+        self.connections.get(self.table_state.selected()?)
+    }
+
+    /// Open the kill menu for the row selected with the keyboard.
+    fn open_kill_menu_for_selected(&mut self) {
+        match self.selected_connection() {
+            Some(conn) => {
+                let conn = conn.clone();
+                self.open_kill_menu(&conn);
+            }
+            None => self.set_status("No row selected - use the arrows or right-click a row"),
+        }
+    }
+
+    /// Open the kill menu for a specific connection.
+    fn open_kill_menu(&mut self, conn: &Connection) {
+        if parse_pid(&conn.pid).is_err() {
+            self.set_status(format!("Cannot kill {}: unknown PID", conn.program));
+            return;
+        }
+        self.kill_menu = Some(KillMenu::new(conn));
+    }
+
+    fn close_kill_menu(&mut self) {
+        self.kill_menu = None;
+    }
+
+    /// Map a terminal row to the connection rendered on it.
+    fn row_at(&self, mouse_row: u16) -> Option<usize> {
+        let area = self.table_area?;
+        // Area layout: top border, header row, data rows..., bottom border
+        let first_data_row = area.y + 2;
+        let last_data_row = area.y + area.height.saturating_sub(2);
+        if mouse_row < first_data_row || mouse_row > last_data_row {
+            return None;
+        }
+
+        let visible_index = (mouse_row - first_data_row) as usize;
+        let index = self.table_state.offset() + visible_index;
+        (index < self.connections.len()).then_some(index)
+    }
+
+    fn handle_mouse(&mut self, mouse: MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Right) => {
+                if let Some(index) = self.row_at(mouse.row) {
+                    self.table_state.select(Some(index));
+                    let conn = self.connections[index].clone();
+                    self.open_kill_menu(&conn);
+                } else if self.kill_menu.is_some() {
+                    self.close_kill_menu();
+                }
+            }
+            MouseEventKind::Down(MouseButton::Left) => {
+                // A left click dismisses an open menu...
+                if self.kill_menu.is_some() {
+                    self.close_kill_menu();
+                    return;
+                }
+                // ...otherwise it selects the row under the cursor
+                if let Some(index) = self.row_at(mouse.row) {
+                    self.table_state.select(Some(index));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_kill_menu_key(&mut self, key: &crossterm::event::KeyEvent) {
+        if self.kill_menu.is_none() {
+            return;
+        }
+
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.close_kill_menu(),
+            KeyCode::Down | KeyCode::Tab => {
+                if let Some(menu) = &mut self.kill_menu {
+                    menu.move_selection(true);
+                }
+            }
+            KeyCode::Up | KeyCode::BackTab => {
+                if let Some(menu) = &mut self.kill_menu {
+                    menu.move_selection(false);
+                }
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => self.activate_kill_menu_item(None),
+            KeyCode::Char(choice @ ('1' | '2' | '3')) => {
+                let index = choice as usize - '1' as usize;
+                self.activate_kill_menu_item(Some(index));
+            }
+            _ => {}
+        }
+    }
+
+    fn activate_kill_menu_item(&mut self, forced_index: Option<usize>) {
+        let Some(menu) = self.kill_menu.take() else {
+            return;
+        };
+        let index = forced_index.unwrap_or(menu.selected);
+
+        match index {
+            0 => self.execute_kill(&menu.pid, &menu.program, KillSignal::Term),
+            1 => self.execute_kill(&menu.pid, &menu.program, KillSignal::Force),
+            _ => {}
+        }
+    }
+
+    fn execute_kill(&mut self, pid: &str, program: &str, signal: KillSignal) {
+        match kill_process(pid, signal) {
+            Ok(()) => {
+                self.set_status(format!("{} sent to {} ({})", signal.label(), program, pid));
+                self.update_connections();
+            }
+            Err(e) => self.set_status(format!("Could not kill {}: {}", program, e)),
+        }
     }
 }
 
@@ -579,8 +760,47 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     f.render_stateful_widget(table, chunks[1], &mut app.table_state);
 
-    // Footer with help
-    let footer_text = vec![Line::from(vec![
+    // Remember where the table was drawn so mouse clicks can be mapped back
+    // to rows on the next event.
+    app.table_area = Some(chunks[1]);
+
+    // Kill confirmation menu (right-click / k)
+    if let Some(menu) = &app.kill_menu {
+        let area = kill_menu_area(app.table_area.unwrap_or(chunks[1]), menu);
+        f.render_widget(Clear, area);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Red))
+            .title(format!("Kill {} (PID {})", menu.program, menu.pid));
+
+        let items: Vec<Line> = KillMenu::items()
+            .iter()
+            .enumerate()
+            .map(|(i, item)| {
+                let is_selected = i == menu.selected;
+                let label = if is_selected {
+                    format!("\u{276f} {}", item)
+                } else {
+                    format!("  {}", item)
+                };
+                let style = if is_selected {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Red)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::White)
+                };
+                Line::from(Span::styled(label, style))
+            })
+            .collect();
+
+        f.render_widget(Paragraph::new(items).block(block), area);
+    }
+
+    // Footer with help + transient status
+    let mut footer_spans = vec![
         Span::styled("Keys: ", Style::default().add_modifier(Modifier::BOLD)),
         Span::styled("q", Style::default().fg(Color::Red)),
         Span::raw(":quit "),
@@ -590,21 +810,52 @@ fn ui(f: &mut Frame, app: &mut App) {
         Span::raw(":refresh "),
         Span::styled("a", Style::default().fg(Color::Yellow)),
         Span::raw(":auto-refresh "),
-        Span::styled("↑↓", Style::default().fg(Color::Green)),
+        Span::styled("\u{2191}\u{2193}", Style::default().fg(Color::Green)),
         Span::raw(":navigate "),
-        Span::styled("←→", Style::default().fg(Color::Blue)),
+        Span::styled("k/RMB", Style::default().fg(Color::Red)),
+        Span::raw(":kill "),
+        Span::styled("\u{2190}\u{2192}", Style::default().fg(Color::Blue)),
         Span::raw(":scroll(5) "),
-        Span::styled("Shift+←→", Style::default().fg(Color::Blue)),
-        Span::raw(":jump "),
-        Span::styled("Home/End", Style::default().fg(Color::Blue)),
-        Span::raw(":jump "),
         Span::styled("1-8", Style::default().fg(Color::Magenta)),
         Span::raw(":sort "),
-    ])];
+    ];
 
-    let footer =
-        tui::widgets::Paragraph::new(footer_text).block(Block::default().borders(Borders::ALL));
+    if let Some((message, at)) = &app.status_message {
+        if at.elapsed() < Duration::from_secs(5) {
+            footer_spans.push(Span::styled(" | ", Style::default().fg(Color::DarkGray)));
+            footer_spans.push(Span::styled(
+                message.clone(),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+    }
+
+    let footer = tui::widgets::Paragraph::new(Line::from(footer_spans))
+        .block(Block::default().borders(Borders::ALL));
     f.render_widget(footer, chunks[2]);
+}
+
+/// Centered area large enough for the kill menu.
+fn kill_menu_area(area: Rect, menu: &KillMenu) -> Rect {
+    let title_width = menu.program.chars().count() + menu.pid.chars().count() + 14;
+    let item_width = KillMenu::items()
+        .iter()
+        .map(|item| item.chars().count() + 4)
+        .max()
+        .unwrap_or(20);
+    // Never overflow u16 and never exceed the available space
+    let wanted = title_width.max(item_width).clamp(24, 240) as u16 + 2;
+    let width = wanted.min(area.width.saturating_sub(2));
+    let height = ((KillMenu::COUNT as u16) + 2).min(area.height.saturating_sub(2));
+
+    Rect {
+        x: area.x + (area.width.saturating_sub(width)) / 2,
+        y: area.y + (area.height.saturating_sub(height)) / 2,
+        width,
+        height,
+    }
 }
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -654,10 +905,17 @@ fn main() -> Result<()> {
         if crossterm::event::poll(timeout)? {
             last_input_time = Instant::now();
 
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    if app.kill_menu.is_some() {
+                        // The confirmation menu consumes every key while open
+                        app.handle_kill_menu_key(&key);
+                        continue;
+                    }
+
                     match key.code {
                         KeyCode::Char('q') => break,
+                        KeyCode::Char('k') => app.open_kill_menu_for_selected(),
                         KeyCode::Char('r') => app.toggle_resolver(),
                         KeyCode::Char('R') => needs_data_update = true, // Mark for update, don't block
                         KeyCode::Char('a') => app.auto_refresh = !app.auto_refresh,
@@ -695,6 +953,8 @@ fn main() -> Result<()> {
                         _ => {}
                     }
                 }
+                Event::Mouse(mouse) => app.handle_mouse(mouse),
+                _ => {}
             }
         }
 

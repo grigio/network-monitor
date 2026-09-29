@@ -13,12 +13,22 @@ fn main() {
 }
 
 fn run_nightly_cargo(args: &[&str], ebpf_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    let mut nightly_cargo = find_nightly_cargo()?;
+    let (mut nightly_cargo, toolchain) = find_nightly_cargo()?;
 
     let output = nightly_cargo
         .args(args)
         .current_dir(ebpf_dir)
+        // The outer build may run under another toolchain (e.g. `cargo +1.92`,
+        // needed by the GTK4 crates). Cargo exports RUSTUP_TOOLCHAIN/RUSTC to
+        // its build scripts, and the nested `cargo +nightly` would then compile
+        // the eBPF crate with the *outer* rustc, which has no rust-src and
+        // makes `-Z build-std=core` fail. Force the nightly toolchain for both
+        // the nested cargo and the rustc it spawns.
+        .env("RUSTUP_TOOLCHAIN", &toolchain)
         .env_remove("RUSTC_WORKSPACE_WRAPPER")
+        .env_remove("RUSTC")
+        .env_remove("RUSTDOC")
+        .env_remove("CARGO")
         .output()
         .map_err(|e| format!("Failed to run nightly cargo: {e}"))?;
 
@@ -29,7 +39,9 @@ fn run_nightly_cargo(args: &[&str], ebpf_dir: &Path) -> Result<(), Box<dyn std::
     Ok(())
 }
 
-fn find_nightly_cargo() -> Result<Command, Box<dyn std::error::Error>> {
+/// Locate a nightly `cargo` and return it together with the rustup toolchain
+/// id that must be used to run it.
+fn find_nightly_cargo() -> Result<(Command, String), Box<dyn std::error::Error>> {
     // 1) Try `cargo +nightly` (rustup proxy)
     let probe = Command::new("cargo")
         .args(["+nightly", "--version"])
@@ -38,7 +50,7 @@ fn find_nightly_cargo() -> Result<Command, Box<dyn std::error::Error>> {
         if out.status.success() {
             let mut cmd = Command::new("cargo");
             cmd.arg("+nightly");
-            return Ok(cmd);
+            return Ok((cmd, "nightly".to_string()));
         }
     }
 
@@ -50,7 +62,7 @@ fn find_nightly_cargo() -> Result<Command, Box<dyn std::error::Error>> {
         if out.status.success() {
             let mut cmd = Command::new("rustup");
             cmd.args(["run", "nightly", "cargo"]);
-            return Ok(cmd);
+            return Ok((cmd, "nightly".to_string()));
         }
     }
 
@@ -69,7 +81,8 @@ fn find_nightly_cargo() -> Result<Command, Box<dyn std::error::Error>> {
                         let probe = Command::new(&cargo).arg("--version").output();
                         if let Ok(out) = probe {
                             if out.status.success() {
-                                return Ok(Command::new(cargo));
+                                // The directory name is a valid rustup toolchain id
+                                return Ok((Command::new(cargo), name.to_string()));
                             }
                         }
                     }

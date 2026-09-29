@@ -48,7 +48,7 @@
       in {
         packages.default = pkgs.rustPlatform.buildRustPackage {
           pname = "network-monitor";
-          version = "0.7.2";
+          version = "0.7.6";
           src = ./.;
 
           cargoLock.lockFile = ./Cargo.lock;

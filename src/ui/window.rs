@@ -16,6 +16,27 @@ use crate::services::connection_monitor::ConnectionMonitor;
 use crate::services::{detect_best_monitor, AddressResolver};
 use crate::utils::formatter::Formatter;
 
+use super::context_menu::copy_to_clipboard;
+
+/// Number of columns rendered in the connection grid.
+pub(crate) const NUM_COLUMNS: usize = 8;
+
+/// One row as it is currently rendered on screen.
+#[derive(Debug, Clone)]
+pub(crate) struct DisplayRow {
+    pub(crate) conn: Connection,
+    /// `true` for the `...` placeholder inserted by virtualization.
+    pub(crate) placeholder: bool,
+}
+
+impl DisplayRow {
+    /// Stable identity of a connection, used to keep the selection across
+    /// refreshes.
+    pub(crate) fn key(&self) -> String {
+        format!("{}|{}|{}", self.conn.pid, self.conn.local, self.conn.remote)
+    }
+}
+
 /// Main application window
 pub struct NetworkMonitorWindow {
     pub window: ApplicationWindow,
@@ -29,10 +50,25 @@ pub struct NetworkMonitorWindow {
     sort_column: Rc<RefCell<usize>>,
     sort_ascending: Rc<RefCell<bool>>,
     row_widgets: Rc<RefCell<Vec<Label>>>,
-    selected_row: Rc<RefCell<Option<usize>>>,
+    /// 1-based grid row of the current selection (`None` when nothing is selected).
+    pub(crate) selected_row: Rc<RefCell<Option<usize>>>,
+    /// Identity of the selected connection so the selection survives refreshes.
+    selected_key: Rc<RefCell<Option<String>>>,
+    /// Rows currently shown on screen (index == grid row - 1).
+    pub(crate) displayed_rows: Rc<RefCell<Vec<DisplayRow>>>,
     connection_labels: Rc<RefCell<(Label, Label, Label, Label)>>,
     column_widths: Rc<RefCell<Vec<i32>>>,
-    active_popovers: Rc<RefCell<Vec<PopoverMenu>>>,
+    /// Summary of the selected row, shown in the bottom strip.
+    selection_label: Label,
+    /// Toast overlay used for transient feedback (copy, kill, errors).
+    pub(crate) toast_overlay: adw::ToastOverlay,
+
+    // Right-click context menu state
+    pub(crate) context_menu: Rc<RefCell<Option<PopoverMenu>>>,
+    pub(crate) context_target: Rc<RefCell<Option<Connection>>>,
+    pub(crate) context_cell_text: Rc<RefCell<String>>,
+    /// 1-based grid row the context menu was opened on.
+    pub(crate) context_row: Rc<RefCell<Option<usize>>>,
 
     // Performance optimization fields
     last_update_time: Rc<RefCell<Instant>>,
@@ -107,6 +143,20 @@ impl NetworkMonitorWindow {
             .build();
         received_label.add_css_class("caption");
 
+        // Summary of the selected row (updated while the app runs)
+        let selection_label = Label::builder()
+            .label("No row selected")
+            .halign(Align::End)
+            .ellipsize(gtk::pango::EllipsizeMode::End)
+            .max_width_chars(40)
+            .build();
+        selection_label.add_css_class("caption");
+        selection_label.add_css_class("accent");
+        selection_label.set_tooltip_text(Some("Row selected for copy / kill actions"));
+
+        // Transient feedback overlay (toasts)
+        let toast_overlay = adw::ToastOverlay::new();
+
         let monitor = Rc::new(NetworkMonitorWindow {
             window,
             header_grid,
@@ -128,14 +178,22 @@ impl NetworkMonitorWindow {
             sort_ascending: Rc::new(RefCell::new(false)),
             row_widgets: Rc::new(RefCell::new(Vec::new())),
             selected_row: Rc::new(RefCell::new(None)),
+            selected_key: Rc::new(RefCell::new(None)),
+            displayed_rows: Rc::new(RefCell::new(Vec::new())),
             connection_labels: Rc::new(RefCell::new((
                 total_label,
                 active_label,
                 sent_label,
                 received_label,
             ))),
-            column_widths: Rc::new(RefCell::new(vec![0; 8])), // 8 columns
-            active_popovers: Rc::new(RefCell::new(Vec::new())),
+            column_widths: Rc::new(RefCell::new(vec![0; NUM_COLUMNS])),
+            selection_label,
+            toast_overlay,
+
+            context_menu: Rc::new(RefCell::new(None)),
+            context_target: Rc::new(RefCell::new(None)),
+            context_cell_text: Rc::new(RefCell::new(String::new())),
+            context_row: Rc::new(RefCell::new(None)),
 
             // Performance optimization fields
             last_update_time: Rc::new(RefCell::new(Instant::now())),
@@ -148,6 +206,7 @@ impl NetworkMonitorWindow {
         monitor.setup_grid();
         monitor.setup_ui();
         monitor.setup_actions();
+        monitor.setup_context_actions();
         monitor.setup_column_sync();
         monitor.setup_close_handler();
         monitor.start_monitoring();
@@ -262,7 +321,9 @@ impl NetworkMonitorWindow {
             .halign(Align::Fill) // Fill available space
             .build();
 
-        self.window.set_content(Some(&main_box));
+        // Transient feedback (toasts) wraps the whole UI
+        self.toast_overlay.set_child(Some(&main_box));
+        self.window.set_content(Some(&self.toast_overlay));
 
         // Enhanced header bar with better styling
         let title_label = Label::builder().label("Network Monitor").build();
@@ -270,6 +331,17 @@ impl NetworkMonitorWindow {
 
         let header_bar = HeaderBar::builder().title_widget(&title_label).build();
         header_bar.add_css_class("flat");
+
+        // Refresh button: forces an immediate update of the connection list
+        let refresh_button = gtk::Button::builder()
+            .icon_name("view-refresh-symbolic")
+            .tooltip_text("Refresh now (also updates every 3s)")
+            .build();
+        refresh_button.add_css_class("flat");
+        refresh_button.add_css_class("image-button");
+        let monitor_clone = self.clone();
+        refresh_button.connect_clicked(move |_| monitor_clone.perform_debounced_update());
+        header_bar.pack_start(&refresh_button);
 
         // Create enhanced menu button
         let menu_button = MenuButton::builder()
@@ -501,6 +573,7 @@ impl NetworkMonitorWindow {
             resolver.set_resolve_hosts(resolve_hosts);
         });
 
+        right_box.append(&self.selection_label);
         right_box.append(&self.resolve_toggle);
         control_box.append(&right_box);
 
@@ -589,26 +662,10 @@ impl NetworkMonitorWindow {
     }
 
     pub fn update_connections(self: &Rc<Self>) {
-        // Clean up any active popovers before updating widgets
-        {
-            let mut popovers = self.active_popovers.borrow_mut();
-            for popover in popovers.drain(..) {
-                popover.unparent();
-            }
-        }
-
-        // Get mutable access to row widgets and clear selection styling
-        {
-            let row_widgets = self.row_widgets.borrow_mut();
-            for widget in row_widgets.iter() {
-                widget.remove_css_class("row-selected");
-            }
-        }
-
-        // Clear selection state
-        {
-            let mut selected = self.selected_row.borrow_mut();
-            *selected = None;
+        // While the row context menu is open the rows on screen are the ones
+        // the menu acts upon, so refresh only after it has been dismissed.
+        if self.context_menu.borrow().is_some() {
+            return;
         }
 
         // Get connections
@@ -659,100 +716,67 @@ impl NetworkMonitorWindow {
         let sorted_connections = self.sort_connections(filtered_connections);
         let connection_count = sorted_connections.len();
 
-        // Apply virtualization for large datasets
-        let virtualized_connections = if *self.virtualization_enabled.borrow()
-            && connection_count > *self.max_visible_rows.borrow()
-        {
-            // Show first 50 and last 50 rows with a virtualized middle section
-            let max_rows = *self.max_visible_rows.borrow();
-            let half_rows = max_rows / 2;
+        // Build the rows that will actually be rendered (virtualization is
+        // applied here instead of during rendering) and keep a copy so that
+        // gestures can resolve what is on screen when they fire.
+        let display_rows = build_display_rows(
+            sorted_connections,
+            *self.virtualization_enabled.borrow(),
+            *self.max_visible_rows.borrow(),
+        );
+        *self.displayed_rows.borrow_mut() = display_rows.clone();
 
-            if connection_count <= max_rows {
-                sorted_connections.clone()
-            } else {
-                let mut result = Vec::new();
-                // Add first half_rows
-                result.extend(sorted_connections.iter().take(half_rows).cloned());
-                // Add a placeholder for the middle
-                result.push(Connection {
-                    program: "...".to_string(),
-                    pid: "...".to_string(),
-                    protocol: "...".to_string(),
-                    local: "...".to_string(),
-                    remote: "...".to_string(),
-                    state: "...".to_string(),
-                    tx_rate: 0,
-                    rx_rate: 0,
-                    command: "...".to_string(),
-                }); // This will be styled as "..."
-                    // Add last half_rows
-                result.extend(
-                    sorted_connections
-                        .iter()
-                        .skip(connection_count - half_rows)
-                        .cloned(),
-                );
-                result
-            }
-        } else {
-            sorted_connections.clone()
-        };
+        // Keep the selection alive across refreshes by re-resolving its
+        // identity against the fresh data (rows may have moved or vanished).
+        let selection = self.resolve_selection(&display_rows);
+        *self.selected_row.borrow_mut() = selection;
+        self.update_selection_label(selection.and_then(|idx| display_rows.get(idx)));
 
         let mut active_connections = 0;
-        let num_columns = 8;
-        let mut row = 1; // Start from row 1 (row 0 is headers)
+        let row_count = display_rows.len();
 
         // Get mutable access to row widgets
         let mut row_widgets = self.row_widgets.borrow_mut();
         let existing_widget_count = row_widgets.len();
 
-        // Use cached column widths when available
-        let _cached_widths = self.column_width_cache.borrow().clone();
+        for (display_index, display_row) in display_rows.iter().enumerate() {
+            let conn = &display_row.conn;
+            let is_placeholder = display_row.placeholder;
+            // Grid row: row 0 holds the headers
+            let row = display_index + 1;
+            // Slot of this row's first cell inside the flat widget vector
+            let start_widget_index = display_index * NUM_COLUMNS;
 
-        for (conn_index, conn) in virtualized_connections.iter().enumerate() {
-            // Skip placeholder rows in virtualized mode
-            if *self.virtualization_enabled.borrow()
-                && conn_index > *self.max_visible_rows.borrow() / 2
-                && conn_index < virtualized_connections.len() - *self.max_visible_rows.borrow() / 2
-                && conn_index != virtualized_connections.len() / 2
-            {
-                continue;
-            }
-
-            // Calculate the starting index for this row's widgets in the row_widgets vector
-            let start_widget_index = conn_index * num_columns;
-
-            // Format display values
-            let prog_pid = if *self.virtualization_enabled.borrow()
-                && conn_index == virtualized_connections.len() / 2
-            {
+            // Format display values (placeholders render as "...")
+            let prog_pid = if is_placeholder {
                 "...".to_string()
             } else {
                 conn.get_process_display()
             };
-
-            let local_resolved = if *self.virtualization_enabled.borrow()
-                && conn_index == virtualized_connections.len() / 2
-            {
+            let local_resolved = if is_placeholder {
                 "...".to_string()
             } else {
                 self.resolver.resolve_address(&conn.local)
             };
-
-            let remote_resolved = if *self.virtualization_enabled.borrow()
-                && conn_index == virtualized_connections.len() / 2
-            {
+            let remote_resolved = if is_placeholder {
                 "...".to_string()
             } else {
                 self.resolver.resolve_address(&conn.remote)
             };
-
-            let process_path = if *self.virtualization_enabled.borrow()
-                && conn_index == virtualized_connections.len() / 2
-            {
+            let process_path = if is_placeholder {
                 "...".to_string()
             } else {
                 conn.command.clone()
+            };
+            let tx_rate = if is_placeholder {
+                "...".to_string()
+            } else {
+                Formatter::format_bytes(conn.tx_rate)
+            };
+            let rx_rate = if is_placeholder {
+                "...".to_string()
+            } else {
+                Formatter::format_bytes(conn.rx_rate)
             };
 
             // Process each column separately
@@ -762,20 +786,8 @@ impl NetworkMonitorWindow {
                 local_resolved,
                 remote_resolved,
                 conn.state.clone(),
-                if *self.virtualization_enabled.borrow()
-                    && conn_index == virtualized_connections.len() / 2
-                {
-                    "...".to_string()
-                } else {
-                    Formatter::format_bytes(conn.tx_rate)
-                },
-                if *self.virtualization_enabled.borrow()
-                    && conn_index == virtualized_connections.len() / 2
-                {
-                    "...".to_string()
-                } else {
-                    Formatter::format_bytes(conn.rx_rate)
-                },
+                tx_rate,
+                rx_rate,
                 process_path,
             ];
 
@@ -785,17 +797,10 @@ impl NetworkMonitorWindow {
 
                 if widget_index < existing_widget_count {
                     // Reuse existing widget: only update text
-                    if let Some(widget) = row_widgets[widget_index].downcast_ref::<Label>() {
-                        label = widget;
-                        label.set_text(text);
-                    } else {
-                        eprintln!("Warning: Widget at index {} is not a Label", widget_index);
-                        continue;
-                    }
+                    label = &row_widgets[widget_index];
+                    label.set_text(text);
                 } else {
                     // Create new widget if needed (only happens when new connections appear)
-                    let text_for_closures = text.clone();
-
                     let new_label = if col == 7 {
                         // Path column - don't ellipsize
                         Label::builder().label(text).xalign(0.0).build()
@@ -855,91 +860,96 @@ impl NetworkMonitorWindow {
                     }
                     new_label.add_css_class("table-cell");
 
-                    // Add click gesture for row selection (only once)
+                    // Row selection on click (controllers are attached once)
                     let gesture = gtk::GestureClick::new();
                     let selected_row = self.selected_row.clone();
+                    let selected_key = self.selected_key.clone();
                     let row_widgets_ref = self.row_widgets.clone();
-                    let row_num = row; // This row number is constant for the closure
+                    let displayed_rows = self.displayed_rows.clone();
+                    let selection_label = self.selection_label.clone();
+                    let row_num = row; // The grid row is constant for this widget
 
                     gesture.connect_pressed(move |_, _, _, _| {
-                        // Update selected row and apply visual styling
-                        {
-                            let mut selected = selected_row.borrow_mut();
-                            *selected = Some(row_num);
-                        }
-
-                        // Update visual styling for all rows
-                        let widgets = row_widgets_ref.borrow();
-                        for (idx, widget) in widgets.iter().enumerate() {
-                            let widget_row = idx / num_columns;
-                            if widget_row == (row_num - 1) {
-                                widget.add_css_class("row-selected");
-                            } else {
-                                widget.remove_css_class("row-selected");
-                            }
-                        }
+                        select_row(
+                            &row_widgets_ref,
+                            &displayed_rows,
+                            &selected_row,
+                            &selected_key,
+                            &selection_label,
+                            row_num,
+                        );
                     });
                     new_label.add_controller(gesture);
 
-                    // Add right-click gesture for context menu (only once)
+                    // Right-click opens the row context menu (copy / kill)
                     let right_click_gesture = gtk::GestureClick::new();
                     right_click_gesture.set_button(3);
+                    let context_menu = self.context_menu.clone();
+                    let context_target = self.context_target.clone();
+                    let context_cell_text = self.context_cell_text.clone();
+                    let context_row = self.context_row.clone();
+                    let selected_row = self.selected_row.clone();
+                    let selected_key = self.selected_key.clone();
+                    let row_widgets_ref = self.row_widgets.clone();
+                    let displayed_rows = self.displayed_rows.clone();
+                    let selection_label = self.selection_label.clone();
+                    let cell_index = start_widget_index + col;
 
-                    let text_for_right_click = text_for_closures.clone(); // Clone for right click closure
-                    let active_popovers = self.active_popovers.clone();
                     right_click_gesture.connect_pressed(move |gesture, _, x, y| {
-                        let copy_text = text_for_right_click.clone();
+                        // A right-click also selects the row it targets
+                        select_row(
+                            &row_widgets_ref,
+                            &displayed_rows,
+                            &selected_row,
+                            &selected_key,
+                            &selection_label,
+                            row_num,
+                        );
 
-                        if let Some(display) = gtk::gdk::Display::default() {
-                            let clipboard = display.clipboard();
-                            clipboard.set_text(&copy_text);
-                        } else {
-                            eprintln!(
-                                "Warning: Could not access clipboard - display not available"
-                            );
-                        }
+                        let target = match displayed_rows.borrow().get(row_num.saturating_sub(1)) {
+                            Some(row) if !row.placeholder => Some(row.conn.clone()),
+                            _ => None,
+                        };
+                        let Some(target) = target else {
+                            return;
+                        };
 
-                        let menu = PopoverMenu::builder().build();
-                        let menu_model = Menu::new();
-                        menu_model.append(Some("Copied!"), None);
-                        menu.set_menu_model(Some(&menu_model));
+                        // Read the live cell text instead of the text that was
+                        // captured when the widget was created
+                        let cell_text = row_widgets_ref
+                            .borrow()
+                            .get(cell_index)
+                            .map(|cell| cell.text().to_string())
+                            .unwrap_or_default();
+
+                        *context_cell_text.borrow_mut() = cell_text;
+                        *context_target.borrow_mut() = Some(target.clone());
+                        *context_row.borrow_mut() = Some(row_num);
 
                         if let Some(parent) = gesture.widget() {
-                            menu.set_parent(&parent);
-                            let rect = gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1);
-                            menu.set_pointing_to(Some(&rect));
-
-                            let active_popovers_clone = active_popovers.clone();
-                            let menu_clone = menu.clone();
-                            active_popovers_clone.borrow_mut().push(menu_clone.clone());
-
-                            let menu_for_timeout = menu.clone();
-                            let active_popovers_for_timeout = active_popovers.clone();
-                            glib::timeout_add_seconds_local_once(1, move || {
-                                menu_for_timeout.unparent();
-                                let mut popovers = active_popovers_for_timeout.borrow_mut();
-                                popovers.retain(|p| !p.eq(&menu_for_timeout));
-                            });
-
-                            menu.popup();
+                            NetworkMonitorWindow::show_row_context_menu(
+                                &context_menu,
+                                &parent,
+                                x,
+                                y,
+                                &target,
+                            );
                         }
                     });
                     new_label.add_controller(right_click_gesture);
 
-                    // Add keyboard shortcut for Ctrl+C (only once)
+                    // Ctrl+C copies the cell content as currently displayed
                     let key_controller = gtk::EventControllerKey::new();
-                    let text_for_keyboard = text_for_closures.clone(); // Clone for keyboard closure
+                    let row_widgets_for_copy = self.row_widgets.clone();
+                    let cell_index_for_copy = start_widget_index + col;
                     key_controller.connect_key_pressed(move |_, key, _, modifier| {
                         if key == gtk::gdk::Key::c
                             && modifier == gtk::gdk::ModifierType::CONTROL_MASK
                         {
-                            if let Some(display) = gtk::gdk::Display::default() {
-                                let clipboard = display.clipboard();
-                                clipboard.set_text(&text_for_keyboard);
-                            } else {
-                                eprintln!(
-                                    "Warning: Could not access clipboard - display not available"
-                                );
+                            if let Some(cell) =
+                                row_widgets_for_copy.borrow().get(cell_index_for_copy)
+                            {
+                                copy_to_clipboard(&cell.text());
                             }
                             return glib::Propagation::Stop;
                         }
@@ -952,8 +962,7 @@ impl NetworkMonitorWindow {
                         .attach(&new_label, col as i32, row as i32, 1, 1);
                     row_widgets.push(new_label.clone());
                     // Get reference from the newly pushed widget in the vector
-                    if let Some(widget) = row_widgets.last().and_then(|w| w.downcast_ref::<Label>())
-                    {
+                    if let Some(widget) = row_widgets.last() {
                         label = widget;
                     } else {
                         eprintln!("Warning: Failed to get reference to newly created Label widget");
@@ -968,9 +977,7 @@ impl NetworkMonitorWindow {
                         label.remove_css_class("success");
                         label.remove_css_class("warning");
                         label.remove_css_class("dim-label");
-                        if *self.virtualization_enabled.borrow()
-                            && conn_index == virtualized_connections.len() / 2
-                        {
+                        if is_placeholder {
                             label.add_css_class("dim-label");
                         } else {
                             match conn.protocol.as_str() {
@@ -983,9 +990,7 @@ impl NetworkMonitorWindow {
                     3 => {
                         // Destination rate color
                         label.remove_css_class("accent");
-                        if *self.virtualization_enabled.borrow()
-                            && conn_index == virtualized_connections.len() / 2
-                        {
+                        if is_placeholder {
                             label.add_css_class("dim-label");
                         } else if conn.rx_rate > 0 || conn.tx_rate > 0 {
                             label.add_css_class("accent");
@@ -999,9 +1004,7 @@ impl NetworkMonitorWindow {
                         label.remove_css_class("warning");
                         label.remove_css_class("error");
                         label.remove_css_class("dim-label");
-                        if *self.virtualization_enabled.borrow()
-                            && conn_index == virtualized_connections.len() / 2
-                        {
+                        if is_placeholder {
                             label.add_css_class("dim-label");
                         } else {
                             match conn.state.as_str() {
@@ -1016,9 +1019,7 @@ impl NetworkMonitorWindow {
                         // TX Rate color
                         label.remove_css_class("error");
                         label.remove_css_class("dim-label");
-                        if *self.virtualization_enabled.borrow()
-                            && conn_index == virtualized_connections.len() / 2
-                        {
+                        if is_placeholder {
                             label.add_css_class("dim-label");
                         } else if conn.tx_rate > 0 {
                             label.add_css_class("error");
@@ -1030,9 +1031,7 @@ impl NetworkMonitorWindow {
                         // RX Rate color
                         label.remove_css_class("accent");
                         label.remove_css_class("dim-label");
-                        if *self.virtualization_enabled.borrow()
-                            && conn_index == virtualized_connections.len() / 2
-                        {
+                        if is_placeholder {
                             label.add_css_class("dim-label");
                         } else if conn.rx_rate > 0 {
                             label.add_css_class("accent");
@@ -1049,41 +1048,27 @@ impl NetworkMonitorWindow {
                 }
             }
 
-            if (!*self.virtualization_enabled.borrow()
-                || conn_index <= *self.max_visible_rows.borrow() / 2
-                || conn_index
-                    >= virtualized_connections.len() - *self.max_visible_rows.borrow() / 2)
-                && conn.is_active()
-            {
+            if !is_placeholder && conn.is_active() {
                 active_connections += 1;
             }
-
-            row += 1;
         }
 
         // Hide excess widgets if the number of connections decreased
-        let total_widgets_needed = virtualized_connections.len() * num_columns;
+        let total_widgets_needed = row_count * NUM_COLUMNS;
         if existing_widget_count > total_widgets_needed {
             for widget in row_widgets.drain(total_widgets_needed..) {
                 self.content_grid.remove(&widget);
             }
         }
+        drop(row_widgets);
+
+        // Re-apply the selection styling: new widgets are created without it
+        // and reused widgets may now sit on a different row.
+        apply_row_selection(&self.row_widgets, selection);
 
         // Update status
-        let display_count = if *self.virtualization_enabled.borrow()
-            && connection_count > *self.max_visible_rows.borrow()
-        {
-            format!(
-                "{} (showing {})",
-                connection_count,
-                *self.max_visible_rows.borrow()
-            )
-        } else {
-            connection_count.to_string()
-        };
-
         self.update_status(
-            display_count.parse().unwrap_or(sorted_connections.len()),
+            connection_count,
             active_connections,
             total_sent,
             total_received,
@@ -1109,6 +1094,26 @@ impl NetworkMonitorWindow {
             } else {
                 cache.insert(i, width);
             }
+        }
+    }
+
+    /// Re-resolve the current selection against freshly built rows so that the
+    /// highlighted row keeps pointing at the same connection after a refresh.
+    fn resolve_selection(&self, rows: &[DisplayRow]) -> Option<usize> {
+        let key = self.selected_key.borrow().clone()?;
+        rows.iter()
+            .position(|row| !row.placeholder && row.key() == key)
+    }
+
+    /// Show which connection the copy / kill actions will act upon.
+    fn update_selection_label(&self, row: Option<&DisplayRow>) {
+        match row {
+            Some(row) => self.selection_label.set_text(&format!(
+                "Selected: {} \u{2192} {}",
+                row.conn.get_process_display(),
+                row.conn.remote
+            )),
+            None => self.selection_label.set_text("No row selected"),
         }
     }
 
@@ -1464,4 +1469,165 @@ fn estimate_text_width(text: &str) -> i32 {
     let char_count = text.chars().count();
     // Cap at reasonable minimum to prevent too narrow columns
     (char_count * 7).max(40) as i32
+}
+
+/// Build the rows that will actually be rendered, applying virtualization to
+/// large connection lists (first half, `...` placeholder, last half).
+fn build_display_rows(
+    mut connections: Vec<Connection>,
+    virtualization_enabled: bool,
+    max_visible_rows: usize,
+) -> Vec<DisplayRow> {
+    let count = connections.len();
+    if !virtualization_enabled || count <= max_visible_rows {
+        return connections
+            .into_iter()
+            .map(|conn| DisplayRow {
+                conn,
+                placeholder: false,
+            })
+            .collect();
+    }
+
+    let half = (max_visible_rows / 2).max(1);
+    let front: Vec<Connection> = connections.drain(..half).collect();
+    let tail_start = connections.len().saturating_sub(half);
+    let tail: Vec<Connection> = connections.drain(tail_start..).collect();
+
+    let map = |conn: Connection| DisplayRow {
+        conn,
+        placeholder: false,
+    };
+
+    let mut rows: Vec<DisplayRow> = Vec::with_capacity(max_visible_rows + 1);
+    rows.extend(front.into_iter().map(map));
+    rows.push(DisplayRow {
+        conn: Connection {
+            program: "...".to_string(),
+            pid: "...".to_string(),
+            protocol: "...".to_string(),
+            local: "...".to_string(),
+            remote: "...".to_string(),
+            state: "...".to_string(),
+            tx_rate: 0,
+            rx_rate: 0,
+            command: "...".to_string(),
+        },
+        placeholder: true,
+    });
+    rows.extend(tail.into_iter().map(map));
+    rows
+}
+
+/// Select `row_num` (1-based grid row) and refresh the visual state.
+///
+/// Placeholder rows cannot be selected.
+fn select_row(
+    row_widgets: &Rc<RefCell<Vec<Label>>>,
+    displayed_rows: &Rc<RefCell<Vec<DisplayRow>>>,
+    selected_row: &Rc<RefCell<Option<usize>>>,
+    selected_key: &Rc<RefCell<Option<String>>>,
+    selection_label: &Label,
+    row_num: usize,
+) {
+    let target = match displayed_rows.borrow().get(row_num.saturating_sub(1)) {
+        Some(row) if !row.placeholder => Some(row.clone()),
+        _ => None,
+    };
+
+    *selected_row.borrow_mut() = target.as_ref().map(|_| row_num);
+    *selected_key.borrow_mut() = target.as_ref().map(DisplayRow::key);
+
+    match target {
+        Some(row) => selection_label.set_text(&format!(
+            "Selected: {} \u{2192} {}",
+            row.conn.get_process_display(),
+            row.conn.remote
+        )),
+        None => selection_label.set_text("No row selected"),
+    }
+
+    apply_row_selection(row_widgets, *selected_row.borrow());
+}
+
+/// Apply (or clear) the `row-selected` style on every cell of the table.
+fn apply_row_selection(row_widgets: &Rc<RefCell<Vec<Label>>>, selected: Option<usize>) {
+    let widgets = row_widgets.borrow();
+    for (idx, widget) in widgets.iter().enumerate() {
+        // Widgets are stored row by row, 1-based because row 0 is the header
+        let widget_row = idx / NUM_COLUMNS + 1;
+        if Some(widget_row) == selected {
+            widget.add_css_class("row-selected");
+        } else {
+            widget.remove_css_class("row-selected");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn connection(pid: &str) -> Connection {
+        Connection {
+            protocol: "tcp".to_string(),
+            state: "ESTABLISHED".to_string(),
+            local: format!("127.0.0.1:4000{pid}"),
+            remote: "1.2.3.4:443".to_string(),
+            program: "prog".to_string(),
+            pid: pid.to_string(),
+            command: "/usr/bin/prog".to_string(),
+            rx_rate: 0,
+            tx_rate: 0,
+        }
+    }
+
+    #[test]
+    fn small_lists_are_not_virtualized() {
+        let connections: Vec<Connection> = (0..10).map(|i| connection(&i.to_string())).collect();
+        let rows = build_display_rows(connections, true, 100);
+
+        assert_eq!(rows.len(), 10);
+        assert!(rows.iter().all(|row| !row.placeholder));
+    }
+
+    #[test]
+    fn virtualization_is_disabled_when_toggled_off() {
+        let connections: Vec<Connection> = (0..250).map(|i| connection(&i.to_string())).collect();
+        let rows = build_display_rows(connections, false, 100);
+
+        assert_eq!(rows.len(), 250);
+        assert!(rows.iter().all(|row| !row.placeholder));
+    }
+
+    #[test]
+    fn large_lists_get_a_single_placeholder_in_the_middle() {
+        let connections: Vec<Connection> = (0..500).map(|i| connection(&i.to_string())).collect();
+        let rows = build_display_rows(connections, true, 100);
+
+        // First half + placeholder + last half, never more than max + 1 rows
+        assert_eq!(rows.len(), 101);
+        let placeholders: Vec<usize> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.placeholder)
+            .map(|(index, _)| index)
+            .collect();
+        assert_eq!(placeholders, vec![50]);
+
+        // Front and tail keep their order, placeholder excluded
+        assert_eq!(rows[0].conn.pid, "0");
+        assert_eq!(rows[49].conn.pid, "49");
+        assert_eq!(rows[51].conn.pid, "450");
+        assert_eq!(rows[100].conn.pid, "499");
+    }
+
+    #[test]
+    fn connection_identity_is_stable() {
+        let row = DisplayRow {
+            conn: connection("4242"),
+            placeholder: false,
+        };
+        assert_eq!(row.key(), "4242|127.0.0.1:40004242|1.2.3.4:443");
+    }
 }

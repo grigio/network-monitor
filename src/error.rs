@@ -30,6 +30,12 @@ pub enum NetworkMonitorError {
 
     #[error("eBPF permission denied: {0}")]
     EbpfPermissionError(String),
+
+    #[error("Invalid process id: {0}")]
+    InvalidPid(String),
+
+    #[error("Failed to signal process: {0}")]
+    ProcessKillError(String),
 }
 
 pub type Result<T> = std::result::Result<T, NetworkMonitorError>;
